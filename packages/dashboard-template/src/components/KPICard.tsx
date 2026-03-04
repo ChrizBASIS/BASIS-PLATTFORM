@@ -1,53 +1,47 @@
 'use client';
 
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 interface KPICardProps {
-  title: string;
+  label: string;
   value: string;
-  change?: number;
-  changeLabel?: string;
-  icon?: React.ElementType;
+  change: string;
+  positive: boolean;
 }
 
-export function KPICard({ title, value, change, changeLabel, icon: Icon }: KPICardProps) {
-  const trend = change ? (change > 0 ? 'up' : 'down') : 'neutral';
+export function KPICard({ label, value, change, positive }: KPICardProps) {
+  const [hov, setHov] = useState(false);
 
   return (
-    <Card className="hover:border-accent/30 transition-colors">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-muted">{title}</p>
-            <p className="text-2xl font-bold tracking-tight">{value}</p>
-            {change !== undefined && (
-              <div className="flex items-center gap-1.5">
-                {trend === 'up' && <TrendingUp className="h-3.5 w-3.5 text-success" />}
-                {trend === 'down' && <TrendingDown className="h-3.5 w-3.5 text-danger" />}
-                {trend === 'neutral' && <Minus className="h-3.5 w-3.5 text-muted" />}
-                <span
-                  className={cn(
-                    'text-xs font-medium',
-                    trend === 'up' && 'text-success',
-                    trend === 'down' && 'text-danger',
-                    trend === 'neutral' && 'text-muted',
-                  )}
-                >
-                  {change > 0 ? '+' : ''}
-                  {change}% {changeLabel}
-                </span>
-              </div>
-            )}
-          </div>
-          {Icon && (
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
-              <Icon className="h-5 w-5 text-accent" />
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        background: hov ? 'var(--accent)' : 'var(--surface)',
+        padding: '32px 28px',
+        transition: 'all 0.2s',
+        cursor: 'default',
+      }}
+    >
+      <p style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+        letterSpacing: '0.15em', textTransform: 'uppercase',
+        color: hov ? 'rgba(8,8,8,0.5)' : 'var(--text-muted)',
+        marginBottom: 16, transition: 'color 0.2s',
+      }}>{label}</p>
+      <p style={{
+        fontSize: 42, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1,
+        color: hov ? 'var(--on-accent)' : 'var(--text)',
+        marginBottom: 8, transition: 'color 0.2s',
+      }}>{value}</p>
+      <p style={{
+        fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+        letterSpacing: '0.1em',
+        color: hov ? 'rgba(8,8,8,0.65)' : positive ? 'var(--positive)' : 'var(--negative)',
+        transition: 'color 0.2s',
+      }}>
+        {change}
+      </p>
+    </div>
   );
 }

@@ -29,11 +29,58 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey(),
   email: text('email').unique().notNull(),
   name: text('name').notNull(),
-  tenantId: uuid('tenant_id').references(() => tenants.id),
-  role: text('role').default('member').notNull(),
   language: text('language').default('de').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ─── Roles ──────────────────────────────────────────────────────────────────────
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    description: text('description'),
+    isSystem: boolean('is_system').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('roles_tenant_slug_idx').on(table.tenantId, table.slug)],
+);
+
+// ─── Permissions ────────────────────────────────────────────────────────────────
+export const permissions = pgTable('permissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  resource: text('resource').notNull(),
+  action: text('action').notNull(),
+  description: text('description'),
+});
+
+// ─── Role ↔ Permission Mapping ──────────────────────────────────────────────────
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roleId: uuid('role_id').references(() => roles.id, { onDelete: 'cascade' }).notNull(),
+    permissionId: uuid('permission_id').references(() => permissions.id, { onDelete: 'cascade' }).notNull(),
+  },
+  (table) => [uniqueIndex('role_permissions_idx').on(table.roleId, table.permissionId)],
+);
+
+// ─── Tenant Members (User ↔ Tenant ↔ Role) ─────────────────────────────────────
+export const tenantMembers = pgTable(
+  'tenant_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    roleId: uuid('role_id').references(() => roles.id).notNull(),
+    invitedBy: uuid('invited_by').references(() => users.id),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+  },
+  (table) => [uniqueIndex('tenant_members_idx').on(table.tenantId, table.userId)],
+);
 
 // ─── Projects ───────────────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
@@ -137,6 +184,22 @@ export const sandboxSessions = pgTable('sandbox_sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   closedAt: timestamp('closed_at', { withTimezone: true }),
 });
+
+// ─── Token Usage (per Tenant, per Agent, per Month) ────────────────────────────
+export const tokenUsage = pgTable(
+  'token_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    userId: uuid('user_id').references(() => users.id),
+    agentType: text('agent_type').notNull(),
+    inputTokens: integer('input_tokens').default(0).notNull(),
+    outputTokens: integer('output_tokens').default(0).notNull(),
+    model: text('model'),
+    conversationId: uuid('conversation_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+);
 
 // ─── Audit Log ──────────────────────────────────────────────────────────────────
 export const auditLog = pgTable('audit_log', {

@@ -1,96 +1,136 @@
 'use client';
 
-import {
-  LayoutDashboard,
-  MessageSquare,
-  Hammer,
-  Settings,
-  BarChart3,
-  FileText,
-  Users,
-  CreditCard,
-  HelpCircle,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 interface NavItem {
   label: string;
-  icon: React.ElementType;
   href: string;
   active?: boolean;
   badge?: string;
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/', active: true },
-  { label: 'Agenten', icon: MessageSquare, href: '/agents', badge: '7' },
-  { label: 'Build Mode', icon: Hammer, href: '/sandbox' },
-  { label: 'Analysen', icon: BarChart3, href: '/analytics' },
-  { label: 'Dokumente', icon: FileText, href: '/documents' },
-  { label: 'Team', icon: Users, href: '/team' },
-  { label: 'Abrechnung', icon: CreditCard, href: '/billing' },
+  { label: 'Dashboard', href: '/', active: true },
+  { label: 'Agenten', href: '/agents', badge: '7' },
+  { label: 'Build Mode', href: '/sandbox' },
+  { label: 'Analysen', href: '/analytics' },
+  { label: 'Dokumente', href: '/documents' },
+  { label: 'Team', href: '/team' },
+  { label: 'Abrechnung', href: '/billing' },
 ];
 
 const bottomItems: NavItem[] = [
-  { label: 'Hilfe', icon: HelpCircle, href: '/help' },
-  { label: 'Einstellungen', icon: Settings, href: '/settings' },
+  { label: 'Hilfe', href: '/help' },
+  { label: 'Einstellungen', href: '/settings' },
 ];
 
 export function Sidebar() {
+  const [hovered, setHovered] = useState<string | null>(null);
+
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border bg-background">
-      <div className="flex h-16 items-center gap-2 border-b border-border px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
-          <span className="text-sm font-bold text-background">B</span>
-        </div>
-        <span className="text-lg font-bold tracking-tight">BASIS</span>
+    <aside style={{
+      position: 'fixed', left: 0, top: 0, zIndex: 40,
+      display: 'flex', flexDirection: 'column',
+      width: 260, height: '100vh',
+      background: 'var(--bg)',
+      borderRight: '1px solid var(--border)',
+    }}>
+      {/* Logo */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        height: 64, padding: '0 24px',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{
+          width: 28, height: 28,
+          background: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 13, fontWeight: 900, color: 'var(--on-accent)',
+        }}>B</div>
+        <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text)' }}>
+          BASIS
+        </span>
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
-        {navItems.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
-              item.active
-                ? 'bg-card text-accent font-medium'
-                : 'text-muted hover:bg-card-hover hover:text-foreground',
-            )}
-          >
-            <item.icon className="h-4 w-4" />
-            <span className="flex-1">{item.label}</span>
-            {item.badge && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/20 px-1.5 text-xs text-accent">
-                {item.badge}
-              </span>
-            )}
-          </a>
-        ))}
+      {/* Nav */}
+      <nav style={{ flex: 1, padding: '12px 12px' }}>
+        {navItems.map((item) => {
+          const isHov = hovered === item.href;
+          const isActive = item.active;
+          return (
+            <a
+              key={item.href}
+              href={item.href}
+              onMouseEnter={() => setHovered(item.href)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 16px', marginBottom: 2,
+                fontSize: 13, fontWeight: isActive ? 700 : 500,
+                textDecoration: 'none',
+                transition: 'all 0.15s',
+                background: isActive ? 'var(--surface)' : isHov ? 'var(--surface)' : 'transparent',
+                color: isActive ? 'var(--accent)' : isHov ? 'var(--text)' : 'var(--text-dim)',
+                borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+              }}
+            >
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.badge && (
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.1em', color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                  padding: '2px 8px',
+                }}>{item.badge}</span>
+              )}
+            </a>
+          );
+        })}
       </nav>
 
-      <div className="border-t border-border p-3">
-        {bottomItems.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted transition-colors hover:bg-card-hover hover:text-foreground"
-          >
-            <item.icon className="h-4 w-4" />
-            <span>{item.label}</span>
-          </a>
-        ))}
+      {/* Bottom nav */}
+      <div style={{ borderTop: '1px solid var(--border)', padding: '12px' }}>
+        {bottomItems.map((item) => {
+          const isHov = hovered === item.href;
+          return (
+            <a
+              key={item.href}
+              href={item.href}
+              onMouseEnter={() => setHovered(item.href)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 16px', marginBottom: 2,
+                fontSize: 13, fontWeight: 500,
+                textDecoration: 'none',
+                transition: 'all 0.15s',
+                background: isHov ? 'var(--surface)' : 'transparent',
+                color: isHov ? 'var(--text)' : 'var(--text-muted)',
+              }}
+            >{item.label}</a>
+          );
+        })}
       </div>
 
-      <div className="border-t border-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-card text-sm font-medium">
-            GS
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="truncate text-sm font-medium">Gasthof Sonnenhof</p>
-            <p className="truncate text-xs text-muted">Pro Plan</p>
-          </div>
+      {/* Tenant info */}
+      <div style={{
+        borderTop: '1px solid var(--border)',
+        padding: '16px 20px',
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <div style={{
+          width: 32, height: 32,
+          background: 'var(--accent)', color: 'var(--on-accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 800,
+        }}>GS</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            Gasthof Sonnenhof
+          </p>
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--accent)' }}>
+            PRO PLAN
+          </p>
         </div>
       </div>
     </aside>

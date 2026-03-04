@@ -1,16 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Send, Bot, User } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
 interface Message {
   id: string;
   role: 'user' | 'agent';
   agent?: string;
   content: string;
-  timestamp: Date;
 }
 
 const DEMO_MESSAGES: Message[] = [
@@ -18,93 +14,111 @@ const DEMO_MESSAGES: Message[] = [
     id: '1',
     role: 'agent',
     agent: 'Lena',
-    content: 'Hallo! Ich bin Lena, deine Assistentin. Wie kann ich dir heute helfen?',
-    timestamp: new Date(),
+    content: 'Hallo! Ich bin Lena, deine Orchestratorin. Wie kann ich dir heute helfen? Ich kann Aufgaben an Marie, Tom, Clara, Marco, Alex oder Nico delegieren.',
   },
 ];
 
 export function AgentChat() {
   const [messages, setMessages] = useState<Message[]>(DEMO_MESSAGES);
   const [input, setInput] = useState('');
+  const [sendHov, setSendHov] = useState(false);
 
   const handleSend = () => {
     if (!input.trim()) return;
-
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: input,
-      timestamp: new Date(),
+    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: input };
+    const reply: Message = {
+      id: crypto.randomUUID(), role: 'agent', agent: 'Lena',
+      content: 'Ich habe deine Nachricht erhalten. Das Agenten-System wird aktuell eingerichtet — bald kann ich dir hier richtig helfen!',
     };
-
-    const agentReply: Message = {
-      id: crypto.randomUUID(),
-      role: 'agent',
-      agent: 'Lena',
-      content: `Ich habe deine Nachricht erhalten. Das Agenten-System wird aktuell eingerichtet — bald kann ich dir hier richtig helfen!`,
-      timestamp: new Date(),
-    };
-
-    setMessages([...messages, userMsg, agentReply]);
+    setMessages([...messages, userMsg, reply]);
     setInput('');
   };
 
   return (
-    <Card className="flex h-[400px] flex-col">
-      <CardHeader className="border-b border-border pb-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/20">
-            <Bot className="h-4 w-4 text-accent" />
-          </div>
-          <CardTitle className="text-sm">Dein Team</CardTitle>
-          <span className="ml-auto flex h-2 w-2 rounded-full bg-success" />
-          <span className="text-xs text-muted">Online</span>
-        </div>
-      </CardHeader>
+    <div style={{
+      background: 'var(--surface)', display: 'flex', flexDirection: 'column', height: 420,
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '16px 24px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <div style={{
+          width: 6, height: 6, background: 'var(--positive)',
+          animation: 'pulse 1.5s infinite', flexShrink: 0,
+        }} />
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+          letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--accent)',
+        }}>DEIN TEAM</span>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em',
+          color: 'var(--text-muted)', marginLeft: 'auto',
+        }}>7 AGENTEN ONLINE</span>
+      </div>
 
-      <CardContent className="flex-1 overflow-y-auto space-y-3 p-4">
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-          >
-            <div
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${
-                msg.role === 'agent' ? 'bg-accent/20 text-accent' : 'bg-card text-foreground'
-              }`}
-            >
-              {msg.role === 'agent' ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+          <div key={msg.id} style={{
+            display: 'flex', gap: 12,
+            flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+          }}>
+            <div style={{
+              width: 28, height: 28, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 800,
+              background: msg.role === 'agent' ? 'var(--accent)' : 'var(--surface-2)',
+              color: msg.role === 'agent' ? 'var(--on-accent)' : 'var(--text)',
+            }}>
+              {msg.role === 'agent' ? (msg.agent?.[0] ?? 'A') : 'DU'}
             </div>
-            <div
-              className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm ${
-                msg.role === 'user'
-                  ? 'bg-accent text-background'
-                  : 'bg-card border border-border'
-              }`}
-            >
+            <div style={{
+              maxWidth: '75%', padding: '12px 16px', fontSize: 14, lineHeight: 1.65,
+              background: msg.role === 'user' ? 'var(--accent)' : 'var(--bg)',
+              color: msg.role === 'user' ? 'var(--on-accent)' : 'var(--text)',
+              border: msg.role === 'user' ? 'none' : '1px solid var(--border)',
+            }}>
               {msg.agent && (
-                <p className="mb-1 text-xs font-medium text-accent">{msg.agent}</p>
+                <p style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.15em', textTransform: 'uppercase',
+                  color: msg.role === 'user' ? 'rgba(8,8,8,0.6)' : 'var(--accent)',
+                  marginBottom: 6,
+                }}>{msg.agent}</p>
               )}
               <p>{msg.content}</p>
             </div>
           </div>
         ))}
-      </CardContent>
-
-      <div className="border-t border-border p-3">
-        <div className="flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Schreib Lena eine Nachricht..."
-            className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-          />
-          <Button size="icon" onClick={handleSend} disabled={!input.trim()}>
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
       </div>
-    </Card>
+
+      {/* Input */}
+      <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: 2 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          placeholder="Schreib Lena eine Nachricht..."
+          style={{ flex: 1, padding: '12px 16px', fontSize: 14 }}
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim()}
+          onMouseEnter={() => setSendHov(true)}
+          onMouseLeave={() => setSendHov(false)}
+          style={{
+            background: sendHov && input.trim() ? 'var(--text)' : 'var(--accent)',
+            color: 'var(--on-accent)',
+            padding: '12px 24px',
+            fontWeight: 800, fontSize: 13,
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+            border: 'none', cursor: input.trim() ? 'pointer' : 'default',
+            opacity: input.trim() ? 1 : 0.4,
+            transition: 'all 0.15s',
+          }}
+        >SENDEN →</button>
+      </div>
+    </div>
   );
 }
