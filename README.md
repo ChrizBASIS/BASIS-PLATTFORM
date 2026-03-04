@@ -42,8 +42,7 @@ basis-platform/
 ### 1. Voraussetzungen
 
 - Node.js 20+
-- PostgreSQL 16
-- Keycloak 24+ (für Auth)
+- Docker + Docker Compose (für PostgreSQL, Redis, Keycloak)
 - OpenAI API Key
 
 ### 2. Installation
@@ -54,53 +53,55 @@ cd basis-platform
 npm install
 ```
 
-### 3. API konfigurieren
+### 3. Infrastruktur starten (Docker)
+
+```bash
+docker compose up -d
+```
+
+Dies startet:
+| Service | URL | Credentials |
+|---|---|---|
+| **PostgreSQL** | `localhost:5432` | `basis` / `basis` |
+| **Redis** | `localhost:6379` | — |
+| **Keycloak** | `http://localhost:8080` | Admin: `admin` / `admin` |
+
+Keycloak importiert beim ersten Start automatisch den Realm `basis` aus `keycloak/basis-realm.json`.
+
+**Test-Login für das Dashboard:**
+- E-Mail: `admin@basis.test`
+- Passwort: `basis123`
+
+> Erster Start dauert ~60 Sekunden bis Keycloak bereit ist.
+
+### 4. API konfigurieren
 
 ```bash
 cp packages/api/.env.example packages/api/.env
 ```
 
-Pflichtfelder in `packages/api/.env`:
+`packages/api/.env` — Pflichtfelder:
 
 ```env
-DATABASE_URL=postgresql://user:pass@localhost:5432/basis
+DATABASE_URL=postgresql://basis:basis@localhost:5432/basis_platform
 
 KEYCLOAK_URL=http://localhost:8080
 KEYCLOAK_REALM=basis
 KEYCLOAK_CLIENT_ID=basis-api
-KEYCLOAK_CLIENT_SECRET=your-secret
+KEYCLOAK_CLIENT_SECRET=basis-api-secret-change-in-production
 
 OPENAI_API_KEY=sk-...
-# Optional: OPENAI_BASE_URL=https://api.openai.com/v1
 
-CRM_ENCRYPTION_KEY=32-byte-hex-key   # für CRM-Credentials (AES-256-GCM)
+CRM_ENCRYPTION_KEY=   # optional, für CRM-Credentials (AES-256-GCM)
 ```
 
-### 4. Datenbank initialisieren
-
-```bash
-npm run db:push --workspace=@basis/api   # Schema anlegen
-npm run db:seed --workspace=@basis/api   # RBAC-Rollen + Berechtigungen seeden
-```
-
-### 5. Starten
-
-```bash
-# Terminal 1 — API
-npm run dev:api        # http://localhost:3001
-
-# Terminal 2 — Dashboard
-npm run dev:dashboard  # http://localhost:3002
-
-# Terminal 3 — CLI (optional)
-npm run dev:cli
-```
-
-### 6. Dashboard konfigurieren
+### 5. Dashboard konfigurieren
 
 ```bash
 cp packages/dashboard-template/.env.local.example packages/dashboard-template/.env.local
 ```
+
+`packages/dashboard-template/.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:3001
@@ -108,6 +109,26 @@ NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
 NEXT_PUBLIC_KEYCLOAK_REALM=basis
 NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=basis-dashboard
 ```
+
+### 6. Datenbank initialisieren
+
+```bash
+npm run db:push --workspace=@basis/api   # Schema anlegen
+npm run db:seed --workspace=@basis/api   # RBAC-Rollen + Berechtigungen seeden
+```
+
+### 7. Starten
+
+```bash
+# Terminal 1 — API
+npm run dev:api        # http://localhost:3001
+
+# Terminal 2 — Dashboard
+npm run dev:dashboard  # http://localhost:3002
+```
+
+Jetzt im Browser öffnen: **http://localhost:3002**
+→ Login mit `admin@basis.test` / `basis123`
 
 ---
 

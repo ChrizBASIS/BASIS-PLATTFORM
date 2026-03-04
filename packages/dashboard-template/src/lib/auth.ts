@@ -63,6 +63,17 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   return base64urlEncode(digest);
 }
 
+// ─── Redirect URI Helper ──────────────────────────────────────────────────────
+// Uses NEXT_PUBLIC_BASE_URL if set (recommended in .env.local) so the
+// redirect_uri is always stable regardless of which port the browser uses.
+
+export function getRedirectUri(): string {
+  const base =
+    process.env.NEXT_PUBLIC_BASE_URL ??
+    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3002');
+  return `${base}/auth/callback`;
+}
+
 // ─── Login Redirect ───────────────────────────────────────────────────────────
 
 export async function redirectToLogin(redirectUri: string) {

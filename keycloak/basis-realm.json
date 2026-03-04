@@ -1,0 +1,109 @@
+{
+  "realm": "basis",
+  "displayName": "BASIS Platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 900,
+  "refreshTokenMaxReuse": 0,
+  "ssoSessionMaxLifespan": 36000,
+
+  "clients": [
+    {
+      "clientId": "basis-dashboard",
+      "name": "BASIS Dashboard",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:3002/*",
+        "http://localhost:3002/auth/callback",
+        "http://127.0.0.1:3002/*",
+        "http://127.0.0.1:*/auth/callback",
+        "http://127.0.0.1:*/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3002",
+        "http://localhost:3001",
+        "http://127.0.0.1:3002",
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3002/*"
+      },
+      "defaultClientScopes": ["openid", "profile", "email"],
+      "optionalClientScopes": ["address", "phone", "offline_access"]
+    },
+    {
+      "clientId": "basis-api",
+      "name": "BASIS API",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "basis-api-secret-change-in-production",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect",
+      "attributes": {}
+    },
+    {
+      "clientId": "basis-cli",
+      "name": "BASIS CLI",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "redirectUris": ["*"],
+      "webOrigins": []
+    }
+  ],
+
+  "users": [
+    {
+      "username": "admin",
+      "email": "admin@basis.test",
+      "firstName": "Admin",
+      "lastName": "BASIS",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "basis123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["default-roles-basis"]
+    }
+  ],
+
+  "roles": {
+    "realm": [
+      {
+        "name": "default-roles-basis",
+        "description": "Default roles for realm basis",
+        "composite": true
+      }
+    ]
+  },
+
+  "scopeMappings": [],
+  "clientScopeMappings": {}
+}

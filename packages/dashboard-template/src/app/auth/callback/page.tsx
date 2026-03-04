@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { exchangeCode } from '@/lib/auth';
+import { exchangeCode, getRedirectUri } from '@/lib/auth';
 import { Suspense } from 'react';
 
 function CallbackHandler() {
@@ -24,9 +24,7 @@ function CallbackHandler() {
       return;
     }
 
-    const redirectUri = `${window.location.origin}/auth/callback`;
-
-    exchangeCode(code, redirectUri)
+    exchangeCode(code, getRedirectUri())
       .then(() => router.replace('/'))
       .catch((e: Error) => setError(e.message));
   }, [searchParams, router]);

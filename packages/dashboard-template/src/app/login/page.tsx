@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { redirectToLogin, getAccessToken } from '@/lib/auth';
+import { redirectToLogin, getAccessToken, getRedirectUri } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
@@ -22,8 +22,7 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     setLoading(true);
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    await redirectToLogin(redirectUri);
+    await redirectToLogin(getRedirectUri());
   };
 
   if (checking) {
