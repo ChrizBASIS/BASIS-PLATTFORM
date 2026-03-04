@@ -201,6 +201,37 @@ export const tokenUsage = pgTable(
   },
 );
 
+// ─── Onboarding Profiles (Kunden-Workflow-Interview) ─────────────────────────
+export const onboardingProfiles = pgTable('onboarding_profiles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull().unique(),
+  industry: text('industry').notNull(),
+  companySize: text('company_size'),
+  businessDescription: text('business_description'),
+  workflows: jsonb('workflows'),
+  painPoints: jsonb('pain_points'),
+  automationWishes: jsonb('automation_wishes'),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Onboarding Tasks (Agent-Zuweisungen aus Interview) ──────────────────────
+export const onboardingTasks = pgTable('onboarding_tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+  profileId: uuid('profile_id').references(() => onboardingProfiles.id).notNull(),
+  assignedAgent: text('assigned_agent').notNull(),
+  category: text('category').notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  currentProcess: text('current_process'),
+  priority: text('priority').default('medium').notNull(),
+  status: text('status').default('identified').notNull(),
+  automatable: boolean('automatable').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Support Sessions (BASIS → Kunden-Tenant Zugriff) ───────────────────────
 export const supportSessions = pgTable('support_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
