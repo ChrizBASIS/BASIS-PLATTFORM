@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 import { useToast } from '@/components/Toast';
@@ -9,7 +10,10 @@ import {
   type TenantMember,
 } from '@/lib/api-client';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
 export default function SettingsPage() {
+  const router = useRouter();
   const { tenant, agents, refetch } = useDashboardData();
   const { toast } = useToast();
   const [section, setSection] = useState<'general' | 'agents' | 'team' | 'gdpr'>('general');
@@ -56,6 +60,8 @@ export default function SettingsPage() {
       setNameSaved(true);
       toast('Name gespeichert', 'success');
       setTimeout(() => setNameSaved(false), 2000);
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Name konnte nicht gespeichert werden', 'error');
     } finally {
       setSavingName(false);
     }
@@ -168,7 +174,7 @@ export default function SettingsPage() {
                 background: 'var(--surface-2)', border: '1px solid var(--border)',
                 color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
                 fontSize: 10, fontWeight: 700, cursor: 'pointer',
-              }}>UPGRADE →</button>
+              }} onClick={() => router.push('/billing')}>UPGRADE →</button>
             </div>
           </div>
         )}
@@ -276,14 +282,14 @@ export default function SettingsPage() {
                 description="Vollständiger Export aller gespeicherten Daten (DSGVO Art. 20). Als JSON-Datei."
                 action="EXPORT ANFORDERN"
                 color="var(--accent)"
-                onClick={() => window.open('/api/v1/gdpr/export', '_blank')}
+                onClick={() => window.open(`${API_BASE}/api/v1/gdpr/export`, '_blank')}
               />
               <GdprCard
                 title="Audit-Log anzeigen"
                 description="Alle sicherheitsrelevanten Aktionen der letzten 90 Tage."
                 action="LOG ÖFFNEN"
                 color="var(--text-muted)"
-                onClick={() => window.open('/api/v1/gdpr/audit-log', '_blank')}
+                onClick={() => window.open(`${API_BASE}/api/v1/gdpr/audit-log`, '_blank')}
               />
               <GdprCard
                 title="Konto unwiderruflich löschen"
