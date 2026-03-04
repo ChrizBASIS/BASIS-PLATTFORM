@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { AgentDesk } from '@/components/AgentDesk';
 import { AgentChat } from '@/components/AgentChat';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
+import { TokenMeter } from '@/components/TokenMeter';
 import { useTheme } from '@/components/ThemeProvider';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 
@@ -274,6 +275,18 @@ export default function DashboardPage() {
             }} />
           ))}
         </div>
+
+        {/* ═══ Token Meter ═══ */}
+        {tokens && (
+          <div style={{ marginTop: 20 }}>
+            <TokenMeter
+              used={tokens.total_tokens}
+              limit={tokens.limit}
+              agents={tokens.agents.map((a) => ({ name: a.agent, tokens: a.tokens }))}
+              period={tokens.period.label}
+            />
+          </div>
+        )}
 
         {/* ═══ Chat Panel ═══ */}
         {chatOpen && (

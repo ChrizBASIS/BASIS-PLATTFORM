@@ -300,3 +300,19 @@ export async function fetchMembers(tenantId: string): Promise<TenantMember[]> {
   const data = await apiFetch<{ members: TenantMember[] }>(`/tenants/${tenantId}/members`);
   return data.members;
 }
+
+// ─── Token History ────────────────────────────────────────────────────────────
+export interface TokenHistoryDay {
+  date: string;
+  totalTokens: number;
+  byAgent: Record<string, number>;
+}
+
+export async function fetchTokenHistory(): Promise<TokenHistoryDay[]> {
+  try {
+    const data = await apiFetch<{ history: TokenHistoryDay[] }>('/token-usage/history');
+    return data.history;
+  } catch {
+    return [];
+  }
+}
