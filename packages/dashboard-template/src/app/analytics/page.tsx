@@ -26,14 +26,9 @@ export default function AnalyticsPage() {
   };
   const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
-  // Per-agent totals from history
-  const agentTotals: Record<string, number> = {};
-  history.forEach((day) => {
-    Object.entries(day.byAgent ?? {}).forEach(([agent, n]) => {
-      agentTotals[agent] = (agentTotals[agent] ?? 0) + n;
-    });
-  });
-  const agentList = Object.entries(agentTotals)
+  // Per-agent totals from TokenSummary (current month)
+  const agentList = (tokens?.agents ?? [])
+    .map((a) => [a.agent, a.tokens] as [string, number])
     .sort((a, b) => b[1] - a[1]);
   const maxAgentTokens = Math.max(...agentList.map(([, n]) => n), 1);
 

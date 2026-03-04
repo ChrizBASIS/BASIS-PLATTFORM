@@ -539,7 +539,6 @@ export async function fetchConversation(id: string): Promise<Conversation | null
 export interface TokenHistoryDay {
   date: string;
   totalTokens: number;
-  byAgent: Record<string, number>;
 }
 
 export async function fetchTokenHistory(): Promise<TokenHistoryDay[]> {
