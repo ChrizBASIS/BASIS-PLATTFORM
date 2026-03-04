@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getEnv } from '../lib/env.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const auth = new Hono();
 
@@ -58,7 +59,7 @@ auth.post('/device/token', async (c) => {
   const data = await response.json();
 
   if (!response.ok) {
-    return c.json({ error: data.error, error_description: data.error_description }, response.status);
+    return c.json({ error: data.error, error_description: data.error_description }, response.status as 400 | 401 | 403 | 500);
   }
 
   return c.json({
@@ -124,7 +125,7 @@ auth.post('/logout', async (c) => {
 });
 
 // GET /auth/me — Current user profile + tenant info
-auth.get('/me', async (c) => {
+auth.get('/me', authMiddleware, async (c) => {
   const user = c.get('user');
   return c.json({ user });
 });

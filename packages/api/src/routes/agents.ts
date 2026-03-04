@@ -5,6 +5,10 @@ import { agentConfig, agentConversations } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
+import { rbac } from '../middleware/rbac.js';
+import { runAgent, runAgentStream } from '../agents/runner.js';
+import { getAllAgents } from '../agents/prompts.js';
+import type { AgentType } from '../agents/types.js';
 
 const agentsRouter = new Hono();
 
@@ -20,8 +24,8 @@ const AGENT_TYPES = [
   'builder',
 ] as const;
 
-// POST /agents/chat — Message to orchestrator (streamed SSE response)
-agentsRouter.post('/chat', async (c) => {
+// POST /agents/chat — Message to orchestrator (auto-routes to best agent)
+agentsRouter.post('/chat', rbac('agent', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const user = c.get('user');
   const body = await c.req.json();
@@ -33,22 +37,90 @@ agentsRouter.post('/chat', async (c) => {
     })
     .parse(body);
 
-  // TODO: Implement OpenAI Agents SDK orchestrator with SSE streaming
-  // For now, return a placeholder response
+  // Load enabled agents for this tenant
+  const configs = await db
+    .select()
+    .from(agentConfig)
+    .where(eq(agentConfig.tenantId, tenantId));
+
+  const enabledAgents: AgentType[] = configs.length > 0
+    ? configs.filter((c) => c.enabled).map((c) => c.agentType as AgentType)
+    : AGENT_TYPES.map((t) => t); // All enabled by default
+
+  const result = await runAgent(
+    {
+      tenantId,
+      userId: user.sub,
+      conversationId: input.conversationId ?? '',
+      language: 'de',
+      enabledAgents,
+    },
+    input.message,
+    input.conversationId,
+  );
+
   return c.json({
-    reply: `[Lena — Orchestrator] Ich habe deine Nachricht erhalten: "${input.message}". Das Agenten-System wird in Phase 3 implementiert.`,
-    agent: 'orchestrator',
-    conversationId: input.conversationId || crypto.randomUUID(),
+    reply: result.message,
+    agent: result.agent,
+    agentName: result.agentName,
+    conversationId: result.conversationId,
+    handedOff: result.handedOff,
+    handedOffTo: result.handedOffTo,
+    metadata: result.metadata,
+  });
+});
+
+// POST /agents/chat/stream — SSE streaming chat
+agentsRouter.post('/chat/stream', rbac('agent', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+  const user = c.get('user');
+  const body = await c.req.json();
+
+  const input = z
+    .object({
+      message: z.string().min(1),
+      conversationId: z.string().uuid().optional(),
+    })
+    .parse(body);
+
+  const configs = await db
+    .select()
+    .from(agentConfig)
+    .where(eq(agentConfig.tenantId, tenantId));
+
+  const enabledAgents: AgentType[] = configs.length > 0
+    ? configs.filter((c) => c.enabled).map((c) => c.agentType as AgentType)
+    : AGENT_TYPES.map((t) => t);
+
+  const { stream } = await runAgentStream(
+    {
+      tenantId,
+      userId: user.sub,
+      conversationId: input.conversationId ?? '',
+      language: 'de',
+      enabledAgents,
+    },
+    input.message,
+    input.conversationId,
+  );
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
   });
 });
 
 // POST /agents/:type/chat — Direct message to specific agent
-agentsRouter.post('/:type/chat', async (c) => {
+agentsRouter.post('/:type/chat', rbac('agent', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
+  const user = c.get('user');
   const agentType = c.req.param('type');
 
   if (!AGENT_TYPES.includes(agentType as (typeof AGENT_TYPES)[number])) {
-    return c.json({ error: 'Unknown agent type' }, 400);
+    return c.json({ error: 'Unbekannter Agent' }, 400);
   }
 
   const body = await c.req.json();
@@ -59,11 +131,58 @@ agentsRouter.post('/:type/chat', async (c) => {
     })
     .parse(body);
 
-  // TODO: Route to specific agent via OpenAI Agents SDK
+  const configs = await db
+    .select()
+    .from(agentConfig)
+    .where(eq(agentConfig.tenantId, tenantId));
+
+  const enabledAgents: AgentType[] = configs.length > 0
+    ? configs.filter((c) => c.enabled).map((c) => c.agentType as AgentType)
+    : AGENT_TYPES.map((t) => t);
+
+  const result = await runAgent(
+    {
+      tenantId,
+      userId: user.sub,
+      conversationId: input.conversationId ?? '',
+      language: 'de',
+      enabledAgents,
+    },
+    input.message,
+    input.conversationId,
+    agentType as AgentType,
+  );
+
   return c.json({
-    reply: `[Agent: ${agentType}] Nachricht erhalten. Implementierung folgt in Phase 3.`,
-    agent: agentType,
-    conversationId: input.conversationId || crypto.randomUUID(),
+    reply: result.message,
+    agent: result.agent,
+    agentName: result.agentName,
+    conversationId: result.conversationId,
+    metadata: result.metadata,
+  });
+});
+
+// GET /agents/list — All available agents with their info
+agentsRouter.get('/list', async (c) => {
+  const tenantId = c.get('tenantId');
+  const all = getAllAgents();
+
+  const configs = await db
+    .select()
+    .from(agentConfig)
+    .where(eq(agentConfig.tenantId, tenantId));
+
+  const configMap = new Map(configs.map((c) => [c.agentType, c]));
+
+  return c.json({
+    agents: all.map((a) => ({
+      type: a.type,
+      name: a.name,
+      emoji: a.emoji,
+      description: a.description,
+      enabled: configMap.get(a.type)?.enabled ?? true,
+      tools: a.tools?.map((t) => t.name) ?? [],
+    })),
   });
 });
 

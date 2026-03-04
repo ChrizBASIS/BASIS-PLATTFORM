@@ -13,6 +13,8 @@ import gdprRoutes from './routes/gdpr.js';
 import { rolesRoutes } from './routes/roles.js';
 import { supportRoutes } from './routes/support.js';
 import { onboardingRoutes } from './routes/onboarding.js';
+import { tokenUsageRoutes } from './routes/token-usage.js';
+import { tenantProfileRoutes } from './routes/tenant-profile.js';
 
 const app = new Hono();
 const env = getEnv();
@@ -40,6 +42,8 @@ app.route('/api/v1/gdpr', gdprRoutes);
 app.route('/api/v1/roles', rolesRoutes);
 app.route('/api/v1/support', supportRoutes);
 app.route('/api/v1/onboarding', onboardingRoutes);
+app.route('/api/v1/token-usage', tokenUsageRoutes);
+app.route('/api/v1/tenant-profile', tenantProfileRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));

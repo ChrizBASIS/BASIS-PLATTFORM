@@ -6,6 +6,7 @@ import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
+import { syncTenantYAML } from '../lib/tenant-yaml.js';
 
 const app = new Hono();
 
@@ -219,8 +220,12 @@ app.post('/analyze', authMiddleware, tenantMiddleware, async (c) => {
     .set({ completedAt: new Date(), updatedAt: new Date() })
     .where(eq(onboardingProfiles.id, profile.id));
 
+  // YAML-Profil automatisch aktualisieren
+  const { version } = await syncTenantYAML(tenantId);
+
   return c.json({
     tasks: createdTasks,
+    yamlVersion: version,
     summary: {
       total: createdTasks.length,
       byAgent: Object.fromEntries(
