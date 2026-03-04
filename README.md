@@ -79,9 +79,8 @@ CRM_ENCRYPTION_KEY=32-byte-hex-key   # für CRM-Credentials (AES-256-GCM)
 ### 4. Datenbank initialisieren
 
 ```bash
-cd packages/api
-npx drizzle-kit push        # Schema anlegen
-npx tsx src/db/seed-rbac.ts # RBAC-Rollen + Berechtigungen seeden
+npm run db:push --workspace=@basis/api   # Schema anlegen
+npm run db:seed --workspace=@basis/api   # RBAC-Rollen + Berechtigungen seeden
 ```
 
 ### 5. Starten
