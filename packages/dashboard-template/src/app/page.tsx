@@ -6,6 +6,7 @@ import { KPICard } from '@/components/KPICard';
 import { AgentChat } from '@/components/AgentChat';
 import { TokenMeter } from '@/components/TokenMeter';
 import { useTheme } from '@/components/ThemeProvider';
+import { SupportBannerDemo } from '@/components/SupportBanner';
 
 const KPI_DATA = [
   { label: 'UMSATZ MÄRZ', value: '€12.450', change: '+8.3%', positive: true },
@@ -40,9 +41,10 @@ export default function DashboardPage() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1 }}>
+      <SupportBannerDemo />
       <Sidebar />
 
-      <main style={{ marginLeft: 260, flex: 1, padding: '0 40px 80px' }}>
+      <main style={{ marginLeft: 260, flex: 1, padding: '40px 40px 80px' }}>
         {/* Header */}
         <header style={{
           padding: '32px 0 40px',

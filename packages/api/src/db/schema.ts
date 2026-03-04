@@ -201,6 +201,19 @@ export const tokenUsage = pgTable(
   },
 );
 
+// ─── Support Sessions (BASIS → Kunden-Tenant Zugriff) ───────────────────────
+export const supportSessions = pgTable('support_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+  supportUserId: uuid('support_user_id').references(() => users.id).notNull(),
+  grantedBy: uuid('granted_by').references(() => users.id),
+  reason: text('reason').notNull(),
+  accessToken: text('access_token').unique().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Audit Log ──────────────────────────────────────────────────────────────────
 export const auditLog = pgTable('audit_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),

@@ -55,6 +55,11 @@ export const SYSTEM_PERMISSIONS = [
 
   // Token Usage
   { resource: 'token_usage', action: 'read', description: 'Token-Verbrauch einsehen' },
+
+  // Support (BASIS-intern)
+  { resource: 'support', action: 'create', description: 'Support-Session für Kunden-Tenant starten' },
+  { resource: 'support', action: 'read', description: 'Aktive Support-Sessions einsehen' },
+  { resource: 'support', action: 'manage', description: 'Support-Sessions verwalten (verlängern/widerrufen)' },
 ] as const;
 
 export type PermissionKey = `${(typeof SYSTEM_PERMISSIONS)[number]['resource']}:${(typeof SYSTEM_PERMISSIONS)[number]['action']}`;
@@ -120,6 +125,23 @@ export const SYSTEM_ROLES = {
       'team:read',
       'role:read',
       'token_usage:read',
+    ],
+  },
+  basis_support: {
+    name: 'BASIS Support',
+    slug: 'basis_support',
+    description: 'Cross-Tenant Support — zeitlich begrenzter Zugriff für BASIS-Team',
+    permissions: [
+      'tenant:read',
+      'project:read', 'project:update',
+      'deployment:create', 'deployment:read',
+      'agent:read', 'agent:manage',
+      'sandbox:create', 'sandbox:read', 'sandbox:manage',
+      'team:read',
+      'role:read',
+      'billing:read',
+      'token_usage:read',
+      'support:create', 'support:read', 'support:manage',
     ],
   },
 } as const;

@@ -11,6 +11,7 @@ import agentsRoutes from './routes/agents.js';
 import sandboxRoutes from './routes/sandbox.js';
 import gdprRoutes from './routes/gdpr.js';
 import { rolesRoutes } from './routes/roles.js';
+import { supportRoutes } from './routes/support.js';
 
 const app = new Hono();
 const env = getEnv();
@@ -36,6 +37,7 @@ app.route('/api/v1/agents', agentsRoutes);
 app.route('/api/v1/sandbox', sandboxRoutes);
 app.route('/api/v1/gdpr', gdprRoutes);
 app.route('/api/v1/roles', rolesRoutes);
+app.route('/api/v1/support', supportRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
