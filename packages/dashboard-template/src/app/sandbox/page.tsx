@@ -121,6 +121,7 @@ export default function SandboxPage() {
       setSelectedProject(p);
       setShowCreate(false);
       setNewName(''); setNewSubdomain(''); setNewTemplate('custom');
+      toast(`Projekt "${p.name}" erstellt`, 'success');
     } catch (e: unknown) {
       setCreateError(e instanceof Error ? e.message : 'Fehler beim Erstellen');
     } finally {
