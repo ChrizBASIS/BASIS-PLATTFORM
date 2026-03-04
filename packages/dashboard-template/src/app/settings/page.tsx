@@ -9,6 +9,7 @@ import {
   updateTenantName, toggleAgent, fetchMembers,
   type TenantMember,
 } from '@/lib/api-client';
+import { getAccessToken } from '@/lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -78,6 +79,50 @@ export default function SettingsPage() {
       toast(e instanceof Error ? e.message : 'Fehler beim Umschalten', 'error');
     } finally {
       setTogglingAgent(null);
+    }
+  };
+
+  const handleGdprExport = async () => {
+    const token = getAccessToken();
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/gdpr/export`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `basis-daten-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Export heruntergeladen', 'success');
+    } catch {
+      toast('Export fehlgeschlagen', 'error');
+    }
+  };
+
+  const handleGdprAuditLog = async () => {
+    const token = getAccessToken();
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/gdpr/audit-log`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const blob = new Blob([JSON.stringify(json.logs, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `basis-audit-log-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Audit-Log heruntergeladen', 'success');
+    } catch {
+      toast('Audit-Log konnte nicht geladen werden', 'error');
     }
   };
 
@@ -282,14 +327,14 @@ export default function SettingsPage() {
                 description="Vollständiger Export aller gespeicherten Daten (DSGVO Art. 20). Als JSON-Datei."
                 action="EXPORT ANFORDERN"
                 color="var(--accent)"
-                onClick={() => window.open(`${API_BASE}/api/v1/gdpr/export`, '_blank')}
+                onClick={handleGdprExport}
               />
               <GdprCard
                 title="Audit-Log anzeigen"
                 description="Alle sicherheitsrelevanten Aktionen der letzten 90 Tage."
                 action="LOG ÖFFNEN"
                 color="var(--text-muted)"
-                onClick={() => window.open(`${API_BASE}/api/v1/gdpr/audit-log`, '_blank')}
+                onClick={handleGdprAuditLog}
               />
               <GdprCard
                 title="Konto unwiderruflich löschen"
