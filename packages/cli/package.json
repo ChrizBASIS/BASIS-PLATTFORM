@@ -17,8 +17,7 @@
     "chalk": "^5.4.0",
     "ora": "^8.1.0",
     "conf": "^13.0.0",
-    "open": "^10.1.0",
-    "node-fetch": "^3.3.0"
+    "open": "^10.1.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

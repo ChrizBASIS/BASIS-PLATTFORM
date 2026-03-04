@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { tokenUsage } from '../db/schema.js';
+import { tokenUsage, tenants } from '../db/schema.js';
 import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -59,8 +59,8 @@ app.get('/summary', authMiddleware, tenantMiddleware, rbac('token_usage', 'read'
 
   const totalTokens = Number(total.totalInput) + Number(total.totalOutput);
 
-  // TODO: Plan-Limit aus Tenant-Daten laden
-  const limit = PLAN_LIMITS['pro']; // Default Pro
+  const [tenant] = await db.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const limit = PLAN_LIMITS[tenant?.plan ?? 'pro'] ?? PLAN_LIMITS['pro'];
   const percentage = limit > 0 ? Math.round((totalTokens / limit) * 100) : 0;
 
   return c.json({

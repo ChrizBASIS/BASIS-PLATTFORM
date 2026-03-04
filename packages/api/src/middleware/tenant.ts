@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { tenantMembers } from '../db/schema.js';
+import { eq, and, isNull } from 'drizzle-orm';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -16,15 +16,20 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  const [dbUser] = await db.select().from(users).where(eq(users.id, user.sub)).limit(1);
+  // Resolve tenant via tenantMembers (RBAC model)
+  const [membership] = await db
+    .select({ tenantId: tenantMembers.tenantId })
+    .from(tenantMembers)
+    .where(and(eq(tenantMembers.userId, user.sub), isNull(tenantMembers.removedAt)))
+    .limit(1);
 
-  if (!dbUser?.tenantId) {
+  if (!membership?.tenantId) {
     return c.json(
       { error: 'No tenant', message: 'User is not associated with any tenant' },
       403,
     );
   }
 
-  c.set('tenantId', dbUser.tenantId);
+  c.set('tenantId', membership.tenantId);
   await next();
 });

@@ -26,6 +26,7 @@ import {
   agentMemory,
   tokenUsage,
   projects,
+  integrations,
 } from '../db/schema.js';
 import { eq, and, isNull, sql, gte } from 'drizzle-orm';
 
@@ -93,6 +94,13 @@ interface TenantYAML {
     status: string;
     template: string;
   }>;
+  integrations: Array<{
+    provider: string;
+    label: string;
+    status: string;
+    last_synced: string | null;
+  }>;
+  crm_summary: Record<string, unknown> | null;
   context: Record<string, unknown>;
 }
 
@@ -164,7 +172,18 @@ export async function generateTenantProfile(tenantId: string): Promise<TenantYAM
     .from(projects)
     .where(eq(projects.tenantId, tenantId));
 
-  // 8. Agent-Memory / zusätzlicher Kontext
+  // 8. Integrations (CRM)
+  const tenantIntegrations = await db
+    .select({
+      provider: integrations.provider,
+      label: integrations.label,
+      status: integrations.status,
+      lastSyncedAt: integrations.lastSyncedAt,
+    })
+    .from(integrations)
+    .where(eq(integrations.tenantId, tenantId));
+
+  // 9. Agent-Memory / zusätzlicher Kontext
   const contextMems = await db
     .select()
     .from(agentMemory)
@@ -241,6 +260,13 @@ export async function generateTenantProfile(tenantId: string): Promise<TenantYAM
       status: p.status,
       template: p.template,
     })),
+    integrations: tenantIntegrations.map((i) => ({
+      provider: i.provider,
+      label: i.label ?? i.provider,
+      status: i.status,
+      last_synced: i.lastSyncedAt?.toISOString() ?? null,
+    })),
+    crm_summary: (context['crm_summary'] as Record<string, unknown>) ?? null,
     context,
   };
 }
@@ -335,6 +361,27 @@ export function toYAMLString(profile: TenantYAML): string {
       lines.push(`    subdomain: "${p.subdomain}"`);
       lines.push(`    status: ${p.status}`);
       lines.push(`    template: ${p.template}`);
+    }
+  }
+  lines.push('');
+
+  lines.push('integrations:');
+  if (profile.integrations.length === 0) {
+    lines.push('  []');
+  } else {
+    for (const i of profile.integrations) {
+      lines.push(`  - provider: ${i.provider}`);
+      lines.push(`    label: "${esc(i.label)}"`);
+      lines.push(`    status: ${i.status}`);
+      lines.push(`    last_synced: ${i.last_synced ? `"${i.last_synced}"` : 'null'}`);
+    }
+  }
+  lines.push('');
+
+  if (profile.crm_summary) {
+    lines.push('crm_summary:');
+    for (const [k, v] of Object.entries(profile.crm_summary)) {
+      lines.push(`  ${k}: ${typeof v === 'string' ? `"${esc(v)}"` : v}`);
     }
   }
 

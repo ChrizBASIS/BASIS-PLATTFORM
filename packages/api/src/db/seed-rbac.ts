@@ -60,6 +60,11 @@ export const SYSTEM_PERMISSIONS = [
   { resource: 'support', action: 'create', description: 'Support-Session für Kunden-Tenant starten' },
   { resource: 'support', action: 'read', description: 'Aktive Support-Sessions einsehen' },
   { resource: 'support', action: 'manage', description: 'Support-Sessions verwalten (verlängern/widerrufen)' },
+
+  // Integrations (CRM-Anbindungen)
+  { resource: 'integration', action: 'create', description: 'CRM-Verbindung einrichten' },
+  { resource: 'integration', action: 'read', description: 'CRM-Daten lesen (Kontakte, Deals, Rechnungen)' },
+  { resource: 'integration', action: 'manage', description: 'CRM-Verbindung testen, synchen, löschen' },
 ] as const;
 
 export type PermissionKey = `${(typeof SYSTEM_PERMISSIONS)[number]['resource']}:${(typeof SYSTEM_PERMISSIONS)[number]['action']}`;
@@ -94,6 +99,7 @@ export const SYSTEM_ROLES = {
       'billing:read',
       'gdpr:read',
       'token_usage:read',
+      'integration:create', 'integration:read', 'integration:manage',
     ],
   },
   member: {
@@ -110,6 +116,7 @@ export const SYSTEM_ROLES = {
       'role:read',
       'billing:read',
       'token_usage:read',
+      'integration:read',
     ],
   },
   viewer: {
@@ -141,6 +148,7 @@ export const SYSTEM_ROLES = {
       'role:read',
       'billing:read',
       'token_usage:read',
+      'integration:read', 'integration:manage',
       'support:create', 'support:read', 'support:manage',
     ],
   },

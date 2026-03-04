@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, auditLog } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, auditLog, tenantMembers, tokenUsage, onboardingTasks, onboardingProfiles, supportSessions, integrations, integrationSyncLog } from '../db/schema.js';
+import { eq, and, isNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 
@@ -14,7 +14,11 @@ gdprRouter.post('/export', async (c) => {
   const tenantId = c.get('tenantId');
 
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-  const tenantUsers = await db.select().from(users).where(eq(users.tenantId, tenantId));
+  const tenantUsers = await db
+    .select({ id: users.id, email: users.email, name: users.name, language: users.language })
+    .from(tenantMembers)
+    .innerJoin(users, eq(tenantMembers.userId, users.id))
+    .where(and(eq(tenantMembers.tenantId, tenantId), isNull(tenantMembers.removedAt)));
   const tenantProjects = await db.select().from(projects).where(eq(projects.tenantId, tenantId));
   const conversations = await db.select().from(agentConversations).where(eq(agentConversations.tenantId, tenantId));
   const memory = await db.select().from(agentMemory).where(eq(agentMemory.tenantId, tenantId));
@@ -40,6 +44,8 @@ gdprRouter.post('/delete', async (c) => {
   }
 
   // Cascade delete all tenant data
+  // NOTE: audit_log is intentionally NOT deleted — retained for legal compliance
+  // (Handels-/Steuerrechtliche Aufbewahrungspflicht, max. 10 Jahre)
   await db.delete(agentMemory).where(eq(agentMemory.tenantId, tenantId));
   await db.delete(agentConversations).where(eq(agentConversations.tenantId, tenantId));
   await db.delete(agentConfig).where(eq(agentConfig.tenantId, tenantId));
@@ -52,8 +58,25 @@ gdprRouter.post('/delete', async (c) => {
   }
   await db.delete(projects).where(eq(projects.tenantId, tenantId));
 
+  // Delete onboarding data
+  const [profile] = await db.select({ id: onboardingProfiles.id }).from(onboardingProfiles).where(eq(onboardingProfiles.tenantId, tenantId)).limit(1);
+  if (profile) {
+    await db.delete(onboardingTasks).where(eq(onboardingTasks.profileId, profile.id));
+    await db.delete(onboardingProfiles).where(eq(onboardingProfiles.tenantId, tenantId));
+  }
+
+  // Delete integrations + sync logs (credentials permanently destroyed)
+  await db.delete(integrationSyncLog).where(eq(integrationSyncLog.tenantId, tenantId));
+  await db.delete(integrations).where(eq(integrations.tenantId, tenantId));
+
+  // Delete token usage + support sessions
+  await db.delete(tokenUsage).where(eq(tokenUsage.tenantId, tenantId));
+  await db.delete(supportSessions).where(eq(supportSessions.tenantId, tenantId));
+
+  // Remove tenant memberships (users themselves may belong to other tenants)
+  await db.delete(tenantMembers).where(eq(tenantMembers.tenantId, tenantId));
+
   await db.update(tenants).set({ deletedAt: new Date(), name: '[GELÖSCHT]', slug: `deleted-${tenantId.slice(0, 8)}` }).where(eq(tenants.id, tenantId));
-  await db.delete(users).where(eq(users.tenantId, tenantId));
 
   return c.json({ ok: true, message: 'Alle Daten wurden gelöscht (DSGVO Art. 17).' });
 });

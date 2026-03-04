@@ -16,6 +16,84 @@ import { getUserPermissions } from '../middleware/rbac.js';
 
 const app = new Hono();
 
+// ─── STATIC ROUTES FIRST (before /:id to avoid param collision) ─────────────
+
+// ─── GET /roles/permissions/all — Alle verfügbaren Permissions ───────────────
+app.get('/permissions/all', authMiddleware, tenantMiddleware, rbac('role', 'read'), async (c) => {
+  const allPerms = await db.select().from(permissions);
+  return c.json({ permissions: allPerms });
+});
+
+// ─── GET /roles/me — Eigene Rolle + Permissions ─────────────────────────────
+app.get('/me', authMiddleware, tenantMiddleware, async (c) => {
+  const user = c.get('user');
+  const tenantId = c.get('tenantId');
+  const result = await getUserPermissions(user.sub, tenantId);
+  return c.json(result);
+});
+
+// ─── GET /roles/members — Mitglieder mit Rollen ─────────────────────────────
+app.get('/members', authMiddleware, tenantMiddleware, rbac('team', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+
+  const members = await db
+    .select({
+      memberId: tenantMembers.id,
+      userId: tenantMembers.userId,
+      userName: users.name,
+      userEmail: users.email,
+      roleId: tenantMembers.roleId,
+      roleName: roles.name,
+      roleSlug: roles.slug,
+      joinedAt: tenantMembers.joinedAt,
+    })
+    .from(tenantMembers)
+    .innerJoin(users, eq(tenantMembers.userId, users.id))
+    .innerJoin(roles, eq(tenantMembers.roleId, roles.id))
+    .where(and(eq(tenantMembers.tenantId, tenantId), isNull(tenantMembers.removedAt)));
+
+  return c.json({ members });
+});
+
+// ─── PUT /roles/members/:userId — Rolle eines Mitglieds ändern ──────────────
+const changeRoleSchema = z.object({
+  roleId: z.string().uuid(),
+});
+
+app.put('/members/:userId', authMiddleware, tenantMiddleware, rbac('team', 'manage'), async (c) => {
+  const targetUserId = c.req.param('userId');
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const parsed = changeRoleSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return c.json({ error: 'Ungültige Eingabe' }, 400);
+  }
+
+  const [targetRole] = await db
+    .select()
+    .from(roles)
+    .where(and(eq(roles.id, parsed.data.roleId), eq(roles.tenantId, tenantId)))
+    .limit(1);
+
+  if (!targetRole) return c.json({ error: 'Rolle nicht gefunden' }, 404);
+
+  await db
+    .update(tenantMembers)
+    .set({ roleId: parsed.data.roleId })
+    .where(
+      and(
+        eq(tenantMembers.tenantId, tenantId),
+        eq(tenantMembers.userId, targetUserId),
+        isNull(tenantMembers.removedAt),
+      ),
+    );
+
+  return c.json({ success: true });
+});
+
+// ─── DYNAMIC ROUTES ─────────────────────────────────────────────────────────
+
 // ─── GET /roles — Alle Rollen des Tenants ────────────────────────────────────
 app.get('/', authMiddleware, tenantMiddleware, rbac('role', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
@@ -162,80 +240,6 @@ app.delete('/:id', authMiddleware, tenantMiddleware, rbac('role', 'manage'), asy
 
   await db.delete(roles).where(eq(roles.id, roleId));
   return c.json({ success: true });
-});
-
-// ─── GET /roles/permissions/all — Alle verfügbaren Permissions ───────────────
-app.get('/permissions/all', authMiddleware, tenantMiddleware, rbac('role', 'read'), async (c) => {
-  const allPerms = await db.select().from(permissions);
-  return c.json({ permissions: allPerms });
-});
-
-// ─── GET /roles/members — Mitglieder mit Rollen ─────────────────────────────
-app.get('/members', authMiddleware, tenantMiddleware, rbac('team', 'read'), async (c) => {
-  const tenantId = c.get('tenantId');
-
-  const members = await db
-    .select({
-      memberId: tenantMembers.id,
-      userId: tenantMembers.userId,
-      userName: users.name,
-      userEmail: users.email,
-      roleId: tenantMembers.roleId,
-      roleName: roles.name,
-      roleSlug: roles.slug,
-      joinedAt: tenantMembers.joinedAt,
-    })
-    .from(tenantMembers)
-    .innerJoin(users, eq(tenantMembers.userId, users.id))
-    .innerJoin(roles, eq(tenantMembers.roleId, roles.id))
-    .where(and(eq(tenantMembers.tenantId, tenantId), isNull(tenantMembers.removedAt)));
-
-  return c.json({ members });
-});
-
-// ─── PUT /roles/members/:userId — Rolle eines Mitglieds ändern ──────────────
-const changeRoleSchema = z.object({
-  roleId: z.string().uuid(),
-});
-
-app.put('/members/:userId', authMiddleware, tenantMiddleware, rbac('team', 'manage'), async (c) => {
-  const targetUserId = c.req.param('userId');
-  const tenantId = c.get('tenantId');
-  const body = await c.req.json();
-  const parsed = changeRoleSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return c.json({ error: 'Ungültige Eingabe' }, 400);
-  }
-
-  const [targetRole] = await db
-    .select()
-    .from(roles)
-    .where(and(eq(roles.id, parsed.data.roleId), eq(roles.tenantId, tenantId)))
-    .limit(1);
-
-  if (!targetRole) return c.json({ error: 'Rolle nicht gefunden' }, 404);
-
-  await db
-    .update(tenantMembers)
-    .set({ roleId: parsed.data.roleId })
-    .where(
-      and(
-        eq(tenantMembers.tenantId, tenantId),
-        eq(tenantMembers.userId, targetUserId),
-        isNull(tenantMembers.removedAt),
-      ),
-    );
-
-  return c.json({ success: true });
-});
-
-// ─── GET /roles/me — Eigene Rolle + Permissions ─────────────────────────────
-app.get('/me', authMiddleware, tenantMiddleware, async (c) => {
-  const user = c.get('user');
-  const tenantId = c.get('tenantId');
-  const result = await getUserPermissions(user.sub, tenantId);
-  return c.json(result);
 });
 
 export { app as rolesRoutes };

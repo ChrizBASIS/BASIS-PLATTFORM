@@ -8,15 +8,17 @@ import {
   loadConversation,
 } from './orchestrator.js';
 import { getAgent, AGENTS } from './prompts.js';
+import { getEnv } from '../lib/env.js';
 import type { AgentType, AgentContext, ChatMessage, AgentResponse } from './types.js';
 
+const env = getEnv();
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY ?? '',
-  // EU-Endpoint wenn verfügbar
-  ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
+  apiKey: env.OPENAI_API_KEY,
+  ...(env.OPENAI_BASE_URL ? { baseURL: env.OPENAI_BASE_URL } : {}),
 });
 
-const MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+const MODEL = 'gpt-4o-mini';
 
 /**
  * Hauptfunktion: Verarbeitet eine User-Nachricht.
@@ -38,7 +40,7 @@ export async function runAgent(
   let currentAgent: AgentType = forceAgent ?? 'orchestrator';
 
   if (conversationId) {
-    const conv = await loadConversation(conversationId);
+    const conv = await loadConversation(conversationId, ctx.tenantId);
     if (conv) {
       history = conv.messages;
       currentAgent = forceAgent ?? (conv.agentType as AgentType);
@@ -189,7 +191,7 @@ export async function runAgentStream(
   let currentAgent: AgentType = forceAgent ?? 'orchestrator';
 
   if (conversationId) {
-    const conv = await loadConversation(conversationId);
+    const conv = await loadConversation(conversationId, ctx.tenantId);
     if (conv) {
       history = conv.messages;
       currentAgent = forceAgent ?? (conv.agentType as AgentType);

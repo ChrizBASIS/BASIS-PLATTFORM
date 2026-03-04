@@ -198,14 +198,21 @@ export async function saveConversation(
 
 /**
  * Lädt eine bestehende Konversation.
+ * WICHTIG: tenantId wird mitgeprüft um Cross-Tenant-Zugriff zu verhindern.
  */
 export async function loadConversation(
   conversationId: string,
+  tenantId: string,
 ): Promise<{ agentType: string; messages: ChatMessage[] } | null> {
   const [conv] = await db
     .select()
     .from(agentConversations)
-    .where(eq(agentConversations.id, conversationId))
+    .where(
+      and(
+        eq(agentConversations.id, conversationId),
+        eq(agentConversations.tenantId, tenantId),
+      ),
+    )
     .limit(1);
 
   if (!conv) return null;

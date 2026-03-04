@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { sandboxSessions } from '../db/schema.js';
+import { sandboxSessions, projects } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -41,19 +41,21 @@ sandboxRouter.post('/session', async (c) => {
 
 // GET /sandbox/session/:id — Session status + preview URL
 sandboxRouter.get('/session/:id', async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
   const [session] = await db
     .select()
     .from(sandboxSessions)
-    .where(eq(sandboxSessions.id, id))
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(projects.tenantId, tenantId)))
     .limit(1);
 
   if (!session) {
     return c.json({ error: 'Session not found' }, 404);
   }
 
-  return c.json({ session });
+  return c.json({ session: session.sandbox_sessions });
 });
 
 // POST /sandbox/session/:id/widget — Create/modify widget in sandbox (via Nico)
@@ -79,12 +81,14 @@ sandboxRouter.post('/session/:id/widget', async (c) => {
 
 // GET /sandbox/session/:id/preview — Get preview URL
 sandboxRouter.get('/session/:id/preview', async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
   const [session] = await db
     .select()
     .from(sandboxSessions)
-    .where(eq(sandboxSessions.id, id))
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(projects.tenantId, tenantId)))
     .limit(1);
 
   if (!session) {
@@ -92,19 +96,21 @@ sandboxRouter.get('/session/:id/preview', async (c) => {
   }
 
   return c.json({
-    previewUrl: session.previewUrl || null,
-    status: session.status,
+    previewUrl: session.sandbox_sessions.previewUrl || null,
+    status: session.sandbox_sessions.status,
   });
 });
 
 // POST /sandbox/session/:id/publish — Publish sandbox changes to live
 sandboxRouter.post('/session/:id/publish', async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
   const [session] = await db
     .select()
     .from(sandboxSessions)
-    .where(and(eq(sandboxSessions.id, id), eq(sandboxSessions.status, 'active')))
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(sandboxSessions.status, 'active'), eq(projects.tenantId, tenantId)))
     .limit(1);
 
   if (!session) {
@@ -122,7 +128,20 @@ sandboxRouter.post('/session/:id/publish', async (c) => {
 
 // POST /sandbox/session/:id/revert — Discard all changes
 sandboxRouter.post('/session/:id/revert', async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
+
+  // Verify session belongs to tenant before reverting
+  const [session] = await db
+    .select({ id: sandboxSessions.id })
+    .from(sandboxSessions)
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(projects.tenantId, tenantId)))
+    .limit(1);
+
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404);
+  }
 
   await db
     .update(sandboxSessions)
@@ -136,12 +155,14 @@ sandboxRouter.post('/session/:id/revert', async (c) => {
 
 // GET /sandbox/session/:id/diff — Show changes vs live
 sandboxRouter.get('/session/:id/diff', async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
   const [session] = await db
     .select()
     .from(sandboxSessions)
-    .where(eq(sandboxSessions.id, id))
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(projects.tenantId, tenantId)))
     .limit(1);
 
   if (!session) {
@@ -149,8 +170,8 @@ sandboxRouter.get('/session/:id/diff', async (c) => {
   }
 
   return c.json({
-    changes: session.changes || [],
-    branchName: session.branchName,
+    changes: session.sandbox_sessions.changes || [],
+    branchName: session.sandbox_sessions.branchName,
   });
 });
 

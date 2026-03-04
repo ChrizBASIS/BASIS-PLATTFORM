@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { tenants, users } from '../db/schema.js';
+import { tenants, users, tenantMembers, roles } from '../db/schema.js';
 import { eq, and, isNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -40,10 +40,20 @@ tenantsRouter.post('/', async (c) => {
     })
     .returning();
 
-  await db
-    .update(users)
-    .set({ tenantId: tenant.id, role: 'owner' })
-    .where(eq(users.id, user.sub));
+  // Assign owner role via tenantMembers
+  const [ownerRole] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(and(eq(roles.slug, 'owner'), eq(roles.tenantId, tenant.id)))
+    .limit(1);
+
+  if (ownerRole) {
+    await db.insert(tenantMembers).values({
+      tenantId: tenant.id,
+      userId: user.sub,
+      roleId: ownerRole.id,
+    });
+  }
 
   return c.json({ tenant }, 201);
 });
@@ -120,7 +130,19 @@ tenantsRouter.get('/:id/members', tenantMiddleware, async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  const members = await db.select().from(users).where(eq(users.tenantId, id));
+  const members = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      language: users.language,
+      role: roles.name,
+      joinedAt: tenantMembers.joinedAt,
+    })
+    .from(tenantMembers)
+    .innerJoin(users, eq(tenantMembers.userId, users.id))
+    .innerJoin(roles, eq(tenantMembers.roleId, roles.id))
+    .where(and(eq(tenantMembers.tenantId, id), isNull(tenantMembers.removedAt)));
 
   return c.json({ members });
 });

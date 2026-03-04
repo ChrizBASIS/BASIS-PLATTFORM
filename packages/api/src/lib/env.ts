@@ -17,6 +17,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   JWT_SECRET: z.string().default('change-me-in-production'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  CRM_ENCRYPTION_KEY: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

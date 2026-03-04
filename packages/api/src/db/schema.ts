@@ -245,6 +245,36 @@ export const supportSessions = pgTable('support_sessions', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Integrations (CRM-Anbindungen pro Tenant) ──────────────────────────────
+export const integrations = pgTable('integrations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+  provider: text('provider').notNull(),
+  label: text('label'),
+  baseUrl: text('base_url'),
+  credentialsEncrypted: text('credentials_encrypted').notNull(),
+  credentialsIv: text('credentials_iv').notNull(),
+  credentialsTag: text('credentials_tag').notNull(),
+  scopes: jsonb('scopes').default(['read']).notNull(),
+  status: text('status').default('active').notNull(),
+  syncIntervalMinutes: integer('sync_interval_minutes').default(60).notNull(),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  syncError: text('sync_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Integration Sync Log ────────────────────────────────────────────────────
+export const integrationSyncLog = pgTable('integration_sync_log', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  integrationId: uuid('integration_id').references(() => integrations.id).notNull(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+  action: text('action').notNull(),
+  recordsSynced: integer('records_synced').default(0),
+  durationMs: integer('duration_ms'),
+  error: text('error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Audit Log ──────────────────────────────────────────────────────────────────
 export const auditLog = pgTable('audit_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
