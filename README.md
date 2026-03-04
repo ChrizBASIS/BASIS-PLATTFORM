@@ -19,7 +19,7 @@ basis-platform/
 │   │                           #   onboarding, token-usage, tenant-profile,
 │   │                           #   gdpr, roles, integrations
 │   ├── cli/                    # basis-cli (npm package)
-│   │   └── src/commands/       # login, init, deploy, status
+│   │   └── src/commands/       # login, logout, init, deploy, status
 │   └── dashboard-template/     # Next.js 15 Dashboard (Port 3002)
 │       └── src/
 │           ├── app/            # Pages: /, /agents, /conversations,
@@ -153,6 +153,7 @@ POST   /api/v1/agents/chat             Chat (auto-routing)
 POST   /api/v1/agents/chat/stream      SSE-Streaming Chat
 POST   /api/v1/agents/:type/chat       Direkt an Agenten
 GET    /api/v1/agents/conversations    Gesprächsverlauf
+GET    /api/v1/agents/conversations/:id Einzelgespräch
 PATCH  /api/v1/agents/config           Agenten aktivieren/deaktivieren
 
 GET    /api/v1/tenant-profile/json     Profil als strukturiertes JSON
@@ -232,7 +233,7 @@ DELETE /api/v1/gdpr/delete             Account-Löschung (DSGVO Art. 17)
 
 | Komponente | Beschreibung |
 |---|---|
-| `Sidebar` | Hauptnavigation, aktiver Link-Highlight, Tenant-Badge |
+| `Sidebar` | Hauptnavigation, Next.js Link (SPA), aktiver Link-Highlight, Tenant-Badge |
 | `AuthGuard` | Schützt alle Routes (außer `/login`, `/auth/callback`) |
 | `ThemeProvider` | Dark/Light-Mode, CSS-Variablen |
 | `Toast` + `useToast` | Globale Notifications (success/error/info/warning) |
