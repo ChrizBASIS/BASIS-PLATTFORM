@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { AgentDesk } from '@/components/AgentDesk';
 import { AgentChat } from '@/components/AgentChat';
+import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { useTheme } from '@/components/ThemeProvider';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 
@@ -26,11 +27,20 @@ function agentNameToKey(name: string): string {
 
 export default function DashboardPage() {
   const { theme, toggle } = useTheme();
-  const { tenant, agents, tokens, loading, error } = useDashboardData();
+  const { tenant, agents, tokens, loading, error, refetch } = useDashboardData();
   const [chatOpen, setChatOpen] = useState(false);
   const [chatAgent, setChatAgent] = useState<string | null>(null);
   const [themeHov, setThemeHov] = useState(false);
   const [buildHov, setBuildHov] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingHov, setOnboardingHov] = useState(false);
+
+  // Auto-open wizard on first visit when no tasks exist
+  useEffect(() => {
+    if (!loading && !error && tenant && (tenant.tasks?.length ?? 0) === 0) {
+      setOnboardingOpen(true);
+    }
+  }, [loading, error, tenant]);
 
   const openChat = (agentName: string) => {
     setChatAgent(agentName);
@@ -129,6 +139,18 @@ export default function DashboardPage() {
               }}
             >{theme === 'dark' ? '☀ LIGHT' : '● DARK'}</button>
             <button
+              onClick={() => setOnboardingOpen(true)}
+              onMouseEnter={() => setOnboardingHov(true)}
+              onMouseLeave={() => setOnboardingHov(false)}
+              style={{
+                background: onboardingHov ? 'var(--surface-2)' : 'var(--surface)',
+                border: '1px solid var(--border)', color: 'var(--text)',
+                padding: '10px 18px', fontFamily: 'var(--font-mono)',
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+                textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >⚙ ONBOARDING</button>
+            <button
               onMouseEnter={() => setBuildHov(true)}
               onMouseLeave={() => setBuildHov(false)}
               style={{
@@ -186,7 +208,13 @@ export default function DashboardPage() {
                       })}
                     </div>
                   ) : (
-                    <p style={{ color: 'var(--text-muted)' }}>Noch keine Aufgaben zugewiesen — starte das Onboarding.</p>
+                    <p style={{ color: 'var(--text-muted)' }}>
+                    Noch keine Aufgaben zugewiesen —{' '}
+                    <span
+                      onClick={() => setOnboardingOpen(true)}
+                      style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 700 }}
+                    >Onboarding starten →</span>
+                  </p>
                   )}
                   <p
                     onClick={() => openChat('Lena')}
@@ -279,6 +307,18 @@ export default function DashboardPage() {
         )}
 
       </main>
+
+      {/* ═══ Onboarding Wizard ═══ */}
+      {onboardingOpen && (
+        <OnboardingWizard
+          onComplete={() => {
+            setOnboardingOpen(false);
+            refetch();
+          }}
+          onClose={() => setOnboardingOpen(false)}
+        />
+      )}
+
     </div>
   );
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { createOnboardingProfile, analyzeOnboarding, type AnalyzeResult } from '@/lib/api-client';
+import { AGENT_META } from '@/hooks/useDashboardData';
 
 const INDUSTRIES = [
   'Gastgewerbe / Hotel', 'Restaurant / Bar', 'Handwerk', 'Einzelhandel',
@@ -31,10 +33,11 @@ interface TaskEntry {
 }
 
 interface OnboardingWizardProps {
-  onComplete?: (data: unknown) => void;
+  onComplete?: () => void;
+  onClose?: () => void;
 }
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, onClose }: OnboardingWizardProps) {
   const [step, setStep] = useState(0);
   const [industry, setIndustry] = useState('');
   const [companySize, setCompanySize] = useState('');
@@ -44,6 +47,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [currentTask, setCurrentTask] = useState<Partial<TaskEntry>>({});
   const [hovNext, setHovNext] = useState(false);
   const [hovBack, setHovBack] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [result, setResult] = useState<AnalyzeResult | null>(null);
 
   const toggleCategory = (id: string) => {
     setSelectedCategories((prev) =>
@@ -63,20 +69,36 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     }
   };
 
-  const handleComplete = () => {
-    const result = {
-      industry, companySize, businessDescription: description,
-      workflows: selectedCategories.map((id) => {
-        const cat = WORKFLOW_CATEGORIES.find((c) => c.id === id);
-        return { name: cat?.label ?? id, category: id };
-      }),
-      tasks: tasks.map((t) => ({
-        ...t,
+  const handleComplete = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await createOnboardingProfile({
+        industry,
+        companySize,
+        businessDescription: description,
+        workflows: selectedCategories.map((id) => {
+          const cat = WORKFLOW_CATEGORIES.find((c) => c.id === id);
+          return { name: cat?.label ?? id };
+        }),
+      });
+
+      const analyzeTasks = tasks.map((t) => ({
+        category: t.category,
+        title: t.title,
+        currentProcess: t.currentProcess || undefined,
+        priority: (t.painLevel >= 4 ? 'high' : t.painLevel >= 2 ? 'medium' : 'low') as 'high' | 'medium' | 'low',
         automatable: true,
-        priority: t.painLevel >= 4 ? 'high' : t.painLevel >= 2 ? 'medium' : 'low',
-      })),
-    };
-    onComplete?.(result);
+      }));
+
+      const analyzeResult = await analyzeOnboarding(analyzeTasks);
+      setResult(analyzeResult);
+      setStep(4);
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'Fehler beim Speichern — bitte Backend prüfen.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const steps = [
@@ -235,7 +257,92 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   ];
 
   const canNext = step === 0 ? !!industry : step === 1 ? !!description : step === 2 ? selectedCategories.length > 0 : tasks.length > 0;
-  const isLast = step === steps.length - 1;
+  const isLast = step === 3;
+
+  // ─── Step 4: Results ───────────────────────────────────────────────────────
+  if (step === 4) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '20px 40px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 28, height: 28, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: 'var(--on-accent)' }}>B</div>
+          <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>BASIS ONBOARDING</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ width: 32, height: 4, background: 'var(--accent)', transition: 'all 0.3s' }} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '48px 40px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
+          <p style={labelStyle}>FERTIG</p>
+          <h2 style={headlineStyle}>Dein Team ist bereit.</h2>
+          <p style={subStyle}>{result?.summary.total ?? 0} Aufgaben wurden analysiert und deinen Agenten zugewiesen.</p>
+
+          {/* Agent summary */}
+          <div style={{ marginTop: 32, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {Object.entries(result?.summary.byAgent ?? {}).map(([agentName, count]) => {
+              const key = agentName.toLowerCase().split(' ')[0];
+              const meta = AGENT_META[key] ?? { color: '#888', initial: agentName[0] };
+              return (
+                <div key={agentName} style={{
+                  display: 'flex', alignItems: 'center', gap: 16,
+                  padding: '16px 20px', background: 'var(--surface)',
+                }}>
+                  <div style={{
+                    width: 36, height: 36, flexShrink: 0,
+                    background: meta.color, color: '#080808',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 900,
+                  }}>{meta.initial}</div>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{agentName}</p>
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {count} AUFGABE{count !== 1 ? 'N' : ''} ZUGEWIESEN
+                    </p>
+                  </div>
+                  <div style={{
+                    width: 8, height: 8, background: 'var(--positive)',
+                    animation: 'pulse 1.5s infinite',
+                  }} />
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ marginTop: 24, padding: '16px 20px', background: 'var(--surface)', borderLeft: '3px solid var(--accent)' }}>
+            <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65 }}>
+              Lena hat alle Agenten gebrieft. Öffne das Dashboard um zu sehen wie sie arbeiten.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ padding: '20px 40px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => onComplete?.()}
+            style={{
+              padding: '14px 36px', background: 'var(--accent)', color: 'var(--on-accent)',
+              border: 'none', fontWeight: 900, fontSize: 14,
+              letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+            }}
+          >ZUM DASHBOARD →</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Submitting overlay ────────────────────────────────────────────────────
+  if (submitting) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+        <div style={{ width: 48, height: 48, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: 'var(--on-accent)', animation: 'pulse 1.5s infinite' }}>L</div>
+        <div style={{ textAlign: 'center' }}>
+          <p style={labelStyle}>LENA ANALYSIERT</p>
+          <p style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Agenten werden gebrieft…</p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>Einen Moment — Lena weist Aufgaben zu und aktualisiert das YAML-Profil.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -253,21 +360,42 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           fontSize: 13, fontWeight: 900, color: 'var(--on-accent)',
         }}>B</div>
         <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em' }}>BASIS ONBOARDING</span>
+        {onClose && (
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '4px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer' }}>SCHLIESSEN ✕</button>
+        )}
         {/* Progress */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} style={{
-              width: i <= step ? 32 : 16, height: 4,
-              background: i <= step ? 'var(--accent)' : 'var(--surface)',
-              transition: 'all 0.3s',
-            }} />
-          ))}
-        </div>
+        {!onClose && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{
+                width: i <= step ? 32 : 16, height: 4,
+                background: i <= step ? 'var(--accent)' : 'var(--surface)',
+                transition: 'all 0.3s',
+              }} />
+            ))}
+          </div>
+        )}
+        {onClose && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{
+                width: i <= step ? 32 : 16, height: 4,
+                background: i <= step ? 'var(--accent)' : 'var(--surface)',
+                transition: 'all 0.3s',
+              }} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '48px 40px', maxWidth: 720, margin: '0 auto', width: '100%' }}>
         {steps[step]()}
+        {submitError && (
+          <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid var(--negative)', color: 'var(--negative)', fontSize: 13 }}>
+            {submitError}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -290,7 +418,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         >← ZURÜCK</button>
         <button
           onClick={isLast ? handleComplete : () => setStep(step + 1)}
-          disabled={!canNext}
+          disabled={!canNext || submitting}
           onMouseEnter={() => setHovNext(true)}
           onMouseLeave={() => setHovNext(false)}
           style={{
@@ -299,7 +427,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             color: canNext ? 'var(--on-accent)' : 'var(--text-muted)',
             border: 'none', fontWeight: 800, fontSize: 13,
             letterSpacing: '0.08em', textTransform: 'uppercase',
-            cursor: canNext ? 'pointer' : 'default', transition: 'all 0.15s',
+            cursor: canNext && !submitting ? 'pointer' : 'default', transition: 'all 0.15s',
           }}
         >{isLast ? 'AGENTEN BRIEFEN →' : 'WEITER →'}</button>
       </div>

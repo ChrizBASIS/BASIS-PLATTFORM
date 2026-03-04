@@ -197,7 +197,7 @@ export async function sendDirectChat(
   });
 }
 
-// ─── Onboarding Tasks ────────────────────────────────────────────────────────
+// ─── Onboarding ──────────────────────────────────────────────────────────────
 export interface OnboardingTask {
   id: string; title: string; description: string | null;
   assignedAgent: string; priority: string; status: string;
@@ -210,4 +210,47 @@ export async function fetchOnboardingTasks(): Promise<OnboardingTask[]> {
   } catch {
     return [];
   }
+}
+
+export interface OnboardingProfileInput {
+  industry: string;
+  companySize?: string;
+  businessDescription?: string;
+  workflows?: Array<{ name: string; description?: string }>;
+}
+
+export async function createOnboardingProfile(data: OnboardingProfileInput): Promise<{ profileId: string }> {
+  return apiFetch<{ profileId: string }>('/onboarding/profile', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export interface AnalyzeTask {
+  category: string;
+  title: string;
+  description?: string;
+  currentProcess?: string;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  automatable?: boolean;
+}
+
+export interface AnalyzeResult {
+  tasks: Array<{
+    id: string; title: string; category: string;
+    assignedAgent: string; assignedAgentName: string;
+    priority: string; automatable: boolean;
+  }>;
+  yamlVersion: number;
+  summary: {
+    total: number;
+    byAgent: Record<string, number>;
+  };
+}
+
+export async function analyzeOnboarding(tasks: AnalyzeTask[]): Promise<AnalyzeResult> {
+  return apiFetch<AnalyzeResult>('/onboarding/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ tasks }),
+  });
 }
