@@ -200,7 +200,7 @@ export default function SettingsPage() {
                         {agent.name}
                       </p>
                       <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {meta.role.toUpperCase()}
+                        {meta.role.toUpperCase()}{agent.tools && agent.tools.length > 0 ? ` · ${agent.tools.length} TOOLS` : ''}
                       </p>
                     </div>
                     <button
