@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loginCommand } from './commands/login.js';
+import { logoutCommand } from './commands/logout.js';
 import { initCommand } from './commands/init.js';
 import { deployCommand } from './commands/deploy.js';
 import { statusCommand } from './commands/status.js';
@@ -16,6 +17,11 @@ program
   .command('login')
   .description('Authentifizierung via Browser (Device Flow)')
   .action(loginCommand);
+
+program
+  .command('logout')
+  .description('Abmelden und gespeicherte Tokens löschen')
+  .action(logoutCommand);
 
 program
   .command('init')
