@@ -45,7 +45,7 @@ tenantsRouter.post('/', async (c) => {
   const [ownerRole] = await db
     .select({ id: roles.id })
     .from(roles)
-    .where(and(eq(roles.slug, 'owner'), eq(roles.tenantId, tenant.id)))
+    .where(and(eq(roles.slug, 'owner'), isNull(roles.tenantId)))
     .limit(1);
 
   if (ownerRole) {
