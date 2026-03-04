@@ -18,7 +18,7 @@ const AGENTS = [
   { name: '🗂  Tom (Backoffice — Dokumente, Organisation)', value: 'backoffice' },
   { name: '💰 Clara (Finance — Rechnungen, Buchhaltung)', value: 'finance' },
   { name: '📣 Marco (Marketing — Social Media, Texte)', value: 'marketing' },
-  { name: '🛟 Alex (Support — Dashboard-Hilfe)', value: 'support', checked: true },
+  { name: '🛟 Alex (Support — Kundenanfragen, Tickets)', value: 'support', checked: true },
   { name: '🔨 Nico (Builder — Sandbox, Widgets bauen)', value: 'builder' },
 ];
 
@@ -85,6 +85,7 @@ export async function initCommand(options: InitOptions) {
         name: answers.companyName,
         subdomain: answers.subdomain,
         template: answers.template,
+        agents: answers.agents,
       }),
     });
 
@@ -102,8 +103,8 @@ export async function initCommand(options: InitOptions) {
     console.log(`  ${chalk.green('✔')} Agenten: ${chalk.cyan(answers.agents.join(', ') || 'keine')}`);
     console.log(`  ${chalk.green('✔')} URL: ${chalk.cyan(`${answers.subdomain}.basis.app`)}`);
     console.log();
-    console.log(`  → ${chalk.cyan('basis-cli dev')}     (lokal starten)`);
     console.log(`  → ${chalk.cyan('basis-cli deploy')}  (live schalten)`);
+    console.log(`  → ${chalk.cyan('basis-cli status')}  (Deployment-Status prüfen)`);
   } catch (err) {
     spinner.fail('Fehler beim Erstellen');
     console.error(err);
