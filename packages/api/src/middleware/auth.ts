@@ -33,8 +33,16 @@ export const authMiddleware = createMiddleware(async (c, next) => {
 
     const { payload } = await jose.jwtVerify(token, JWKS, {
       issuer: `${env.KEYCLOAK_URL}/realms/${env.KEYCLOAK_REALM}`,
-      audience: env.KEYCLOAK_CLIENT_ID,
     });
+
+    // Keycloak may set aud, azp, or both. Accept tokens from any known client.
+    const knownClients = [env.KEYCLOAK_CLIENT_ID, 'basis-dashboard', 'basis-cli', 'account'];
+    const aud = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
+    const azp = (payload as Record<string, unknown>).azp as string | undefined;
+    const allClaims = [...aud, ...(azp ? [azp] : [])];
+    if (allClaims.length === 0 || !allClaims.some((a) => knownClients.includes(a!))) {
+      return c.json({ error: 'Unauthorized', message: 'Invalid audience' }, 401);
+    }
 
     c.set('user', {
       sub: payload.sub!,

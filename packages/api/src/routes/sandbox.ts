@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { sandboxSessions, projects } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { sandboxSessions, projects, widgets, tokenUsage } from '../db/schema.js';
+import { eq, and, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
+import { generateWidget, widgetChat } from '../agents/widget-generator.js';
 
 const sandboxRouter = new Hono();
 
@@ -85,13 +86,99 @@ sandboxRouter.post('/session/:id/widget', rbac('sandbox', 'create'), async (c) =
     })
     .parse(body);
 
-  // TODO: Send description to Nico (Build Agent)
-  // Nico generates widget config/code, renders preview
-  return c.json({
-    message: `Nico hat deine Beschreibung erhalten: "${input.description}". Widget-Generierung wird in Phase 3 implementiert.`,
-    widgetId: input.widgetId || crypto.randomUUID(),
-    previewReady: false,
-  });
+  const user = c.get('user');
+
+  try {
+    // If widgetId provided → update existing widget
+    let existingCode: string | undefined;
+    let existingVersion = 1;
+    if (input.widgetId) {
+      const [existing] = await db
+        .select({ code: widgets.code, version: widgets.version })
+        .from(widgets)
+        .where(eq(widgets.id, input.widgetId))
+        .limit(1);
+      existingCode = existing?.code;
+      existingVersion = existing?.version ?? 1;
+    }
+
+    // Generate widget via GPT
+    const result = await generateWidget(input.description, existingCode);
+
+    // Find projectId from session
+    const [sessionData] = await db
+      .select({ projectId: sandboxSessions.projectId })
+      .from(sandboxSessions)
+      .where(eq(sandboxSessions.id, id))
+      .limit(1);
+
+    // Save widget to DB
+    if (input.widgetId && existingCode) {
+      // Update existing widget
+      await db.update(widgets).set({
+        code: result.code,
+        description: input.description,
+        title: result.title,
+        version: existingVersion + 1,
+        updatedAt: new Date(),
+      }).where(eq(widgets.id, input.widgetId));
+
+      // Track tokens
+      await db.insert(tokenUsage).values({
+        tenantId,
+        userId: user.sub,
+        agentType: 'builder',
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        model: 'gpt-4o-mini',
+      });
+
+      return c.json({
+        message: `Widget "${result.title}" wurde aktualisiert.`,
+        widgetId: input.widgetId,
+        title: result.title,
+        code: result.code,
+        previewReady: true,
+      });
+    }
+
+    // Create new widget
+    const [widget] = await db.insert(widgets).values({
+      tenantId,
+      projectId: sessionData?.projectId,
+      sessionId: id,
+      title: result.title,
+      description: input.description,
+      code: result.code,
+      status: 'draft',
+      createdBy: user.sub,
+    }).returning();
+
+    // Track tokens
+    await db.insert(tokenUsage).values({
+      tenantId,
+      userId: user.sub,
+      agentType: 'builder',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model: 'gpt-4o-mini',
+    });
+
+    return c.json({
+      message: `Widget "${result.title}" wurde generiert! Schau dir die Vorschau an.`,
+      widgetId: widget.id,
+      title: result.title,
+      code: result.code,
+      previewReady: true,
+    });
+  } catch (error: any) {
+    console.error('[sandbox] Widget generation error:', error?.message);
+    return c.json({
+      message: `Fehler bei der Widget-Generierung: ${error?.message ?? 'Unbekannt'}`,
+      widgetId: null,
+      previewReady: false,
+    }, 500);
+  }
 });
 
 // GET /sandbox/session/:id/preview — Get preview URL
@@ -188,6 +275,87 @@ sandboxRouter.get('/session/:id/diff', rbac('sandbox', 'read'), async (c) => {
     changes: session.sandbox_sessions.changes || [],
     branchName: session.sandbox_sessions.branchName,
   });
+});
+
+// ─── Widget CRUD ──────────────────────────────────────────────────────────────
+
+// GET /sandbox/widgets — List all widgets for tenant
+sandboxRouter.get('/widgets', rbac('sandbox', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+
+  const result = await db
+    .select()
+    .from(widgets)
+    .where(eq(widgets.tenantId, tenantId))
+    .orderBy(desc(widgets.createdAt));
+
+  return c.json({ widgets: result });
+});
+
+// GET /sandbox/widgets/:id — Get single widget with code
+sandboxRouter.get('/widgets/:id', rbac('sandbox', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+
+  const [widget] = await db
+    .select()
+    .from(widgets)
+    .where(and(eq(widgets.id, id), eq(widgets.tenantId, tenantId)))
+    .limit(1);
+
+  if (!widget) {
+    return c.json({ error: 'Widget not found' }, 404);
+  }
+
+  return c.json({ widget });
+});
+
+// PATCH /sandbox/widgets/:id — Update widget status (publish/archive)
+sandboxRouter.patch('/widgets/:id', rbac('sandbox', 'manage'), async (c) => {
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+
+  const input = z.object({
+    status: z.enum(['draft', 'published', 'archived']).optional(),
+    title: z.string().min(1).optional(),
+  }).parse(body);
+
+  const [widget] = await db
+    .select({ id: widgets.id })
+    .from(widgets)
+    .where(and(eq(widgets.id, id), eq(widgets.tenantId, tenantId)))
+    .limit(1);
+
+  if (!widget) {
+    return c.json({ error: 'Widget not found' }, 404);
+  }
+
+  const [updated] = await db.update(widgets).set({
+    ...input,
+    updatedAt: new Date(),
+  }).where(eq(widgets.id, id)).returning();
+
+  return c.json({ widget: updated });
+});
+
+// DELETE /sandbox/widgets/:id — Delete widget
+sandboxRouter.delete('/widgets/:id', rbac('sandbox', 'manage'), async (c) => {
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+
+  const [widget] = await db
+    .select({ id: widgets.id })
+    .from(widgets)
+    .where(and(eq(widgets.id, id), eq(widgets.tenantId, tenantId)))
+    .limit(1);
+
+  if (!widget) {
+    return c.json({ error: 'Widget not found' }, 404);
+  }
+
+  await db.delete(widgets).where(eq(widgets.id, id));
+  return c.json({ ok: true });
 });
 
 export default sandboxRouter;

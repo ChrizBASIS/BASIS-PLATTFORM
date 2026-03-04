@@ -1,8 +1,10 @@
 import { db } from '../db/index.js';
-import { agentMemory, agentConversations, onboardingTasks, onboardingProfiles } from '../db/schema.js';
+import { agentMemory, agentConversations, onboardingTasks, onboardingProfiles, integrations } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { AGENTS, getAgent } from './prompts.js';
 import { getTenantYAML } from '../lib/tenant-yaml.js';
+import { createAdapter } from '../integrations/registry.js';
+import type { CRMAdapter } from '../integrations/types.js';
 import type { AgentType, AgentContext, ChatMessage, AgentResponse } from './types.js';
 
 /**
@@ -125,7 +127,183 @@ export async function loadAgentContext(
     parts.push(`GESPEICHERTER KONTEXT:\n${JSON.stringify(memories[0].value, null, 2)}\n`);
   }
 
+  // 4. CRM/Odoo Briefing — echte Firmendaten für den jeweiligen Bereich
+  const crmBriefing = await loadCrmBriefing(agentType, tenantId);
+  if (crmBriefing) {
+    parts.push(crmBriefing);
+  }
+
   return parts.join('\n');
+}
+
+/**
+ * Lädt ein bereichsspezifisches CRM-Briefing für den Agenten.
+ * Jeder Agent bekommt die Odoo-Daten, die für seinen Bereich relevant sind.
+ */
+async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<string | null> {
+  let adapter: CRMAdapter | null = null;
+  try {
+    const [intg] = await db
+      .select()
+      .from(integrations)
+      .where(and(eq(integrations.tenantId, tenantId), eq(integrations.status, 'active')))
+      .limit(1);
+    if (!intg) return null;
+    adapter = createAdapter(intg.provider as any, {
+      encrypted: intg.credentialsEncrypted,
+      iv: intg.credentialsIv,
+      tag: intg.credentialsTag,
+    } as any);
+  } catch {
+    return null;
+  }
+  if (!adapter) return null;
+
+  const parts: string[] = ['DEIN ODOO/CRM-BRIEFING (aktuelle Firmendaten für deinen Bereich):'];
+
+  try {
+    switch (agentType) {
+      case 'finance': {
+        const [summary, invoices, deals] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+          adapter.getInvoices(20).catch(() => []),
+          adapter.getDeals(10).catch(() => []),
+        ]);
+        if (summary) {
+          parts.push(`\nFINANZ-ÜBERBLICK:`);
+          parts.push(`- Offene Deals: ${summary.openDeals} (Pipeline: ${summary.revenuePipeline} ${summary.pipelineCurrency})`);
+          parts.push(`- Überfällige Rechnungen: ${summary.overdueInvoices}`);
+          parts.push(`- Gesamtkontakte: ${summary.totalContacts}`);
+        }
+        if (invoices.length > 0) {
+          parts.push(`\nRECHNUNGEN (${invoices.length}):`);
+          for (const inv of invoices.slice(0, 15)) {
+            parts.push(`- ${inv.number}: ${inv.amount} ${inv.currency} | Status: ${inv.status} | Fällig: ${inv.dueDate ?? '?'} | ${inv.contactName ?? 'Unbekannt'}`);
+          }
+        }
+        if (deals.length > 0) {
+          parts.push(`\nDEALS (${deals.length}):`);
+          for (const d of deals) {
+            parts.push(`- ${d.title}: ${d.value ?? '?'} ${d.currency ?? ''} | Phase: ${d.stage} | ${d.contactName ?? ''}`);
+          }
+        }
+        break;
+      }
+
+      case 'backoffice': {
+        const [summary, contacts] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+          adapter.getContacts(30).catch(() => []),
+        ]);
+        if (summary) {
+          parts.push(`\nFIRMEN-ÜBERBLICK:`);
+          parts.push(`- Gesamtkontakte: ${summary.totalContacts}`);
+          parts.push(`- Letzte Aktivitäten: ${summary.recentActivities}`);
+        }
+        if (contacts.length > 0) {
+          parts.push(`\nKONTAKTLISTE (${contacts.length}):`);
+          for (const c of contacts.slice(0, 20)) {
+            parts.push(`- ${c.name}${c.company ? ` (${c.company})` : ''} | ${c.email ?? ''} | ${c.phone ?? ''}`);
+          }
+        }
+        break;
+      }
+
+      case 'marketing': {
+        const [summary, contacts, activities] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+          adapter.getContacts(20).catch(() => []),
+          adapter.getActivities(undefined, 10).catch(() => []),
+        ]);
+        if (summary) {
+          parts.push(`\nMARKETING-ÜBERBLICK:`);
+          parts.push(`- Gesamtkontakte: ${summary.totalContacts}`);
+          parts.push(`- Pipeline-Umsatz: ${summary.revenuePipeline} ${summary.pipelineCurrency}`);
+        }
+        if (contacts.length > 0) {
+          parts.push(`\nKUNDEN/KONTAKTE (${contacts.length}):`);
+          for (const c of contacts.slice(0, 15)) {
+            parts.push(`- ${c.name}${c.company ? ` (${c.company})` : ''}${c.tags?.length ? ` [${c.tags.join(', ')}]` : ''}`);
+          }
+        }
+        if (activities.length > 0) {
+          parts.push(`\nLETZTE AKTIVITÄTEN:`);
+          for (const a of activities) {
+            parts.push(`- ${a.date}: ${a.type} — ${a.description.substring(0, 100)}${a.contactName ? ` (${a.contactName})` : ''}`);
+          }
+        }
+        break;
+      }
+
+      case 'sekretariat': {
+        const [contacts, activities] = await Promise.all([
+          adapter.getContacts(25).catch(() => []),
+          adapter.getActivities(undefined, 15).catch(() => []),
+        ]);
+        if (contacts.length > 0) {
+          parts.push(`\nKONTAKTE FÜR KORRESPONDENZ (${contacts.length}):`);
+          for (const c of contacts.slice(0, 20)) {
+            parts.push(`- ${c.name}${c.company ? ` (${c.company})` : ''} | ${c.email ?? 'kein Email'} | ${c.phone ?? 'kein Tel.'}`);
+          }
+        }
+        if (activities.length > 0) {
+          parts.push(`\nLETZTE AKTIVITÄTEN/KOMMUNIKATION:`);
+          for (const a of activities) {
+            parts.push(`- ${a.date}: ${a.type} — ${a.description.substring(0, 100)}${a.contactName ? ` (${a.contactName})` : ''}`);
+          }
+        }
+        break;
+      }
+
+      case 'support': {
+        const [summary] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+        ]);
+        if (summary) {
+          parts.push(`\nFIRMEN-ÜBERBLICK FÜR SUPPORT:`);
+          parts.push(`- Gesamtkontakte: ${summary.totalContacts}`);
+          parts.push(`- Offene Deals: ${summary.openDeals}`);
+          parts.push(`- Überfällige Rechnungen: ${summary.overdueInvoices}`);
+          parts.push(`- Letzte Aktivitäten: ${summary.recentActivities}`);
+        }
+        break;
+      }
+
+      case 'orchestrator': {
+        const [summary] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+        ]);
+        if (summary) {
+          parts.push(`\nGESAMTÜBERBLICK (für Team-Koordination):`);
+          parts.push(`- Gesamtkontakte: ${summary.totalContacts}`);
+          parts.push(`- Offene Deals: ${summary.openDeals} (Pipeline: ${summary.revenuePipeline} ${summary.pipelineCurrency})`);
+          parts.push(`- Überfällige Rechnungen: ${summary.overdueInvoices}`);
+          parts.push(`- Letzte Aktivitäten: ${summary.recentActivities}`);
+          parts.push(`- Letzte Synchronisierung: ${summary.lastSynced}`);
+        }
+        break;
+      }
+
+      case 'builder': {
+        const [summary] = await Promise.all([
+          adapter.getSummary().catch(() => null),
+        ]);
+        if (summary) {
+          parts.push(`\nDATEN-ÜBERBLICK FÜR DASHBOARD-WIDGETS:`);
+          parts.push(`- Verfügbare Kontakte: ${summary.totalContacts}`);
+          parts.push(`- Offene Deals: ${summary.openDeals}`);
+          parts.push(`- Pipeline-Umsatz: ${summary.revenuePipeline} ${summary.pipelineCurrency}`);
+          parts.push(`- Überfällige Rechnungen: ${summary.overdueInvoices}`);
+        }
+        break;
+      }
+    }
+  } catch (err: any) {
+    console.error(`[loadCrmBriefing] Error for ${agentType}:`, err?.message);
+    return null;
+  }
+
+  return parts.length > 1 ? parts.join('\n') : null;
 }
 
 /**

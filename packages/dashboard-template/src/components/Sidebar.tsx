@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth';
+import { fetchWidgets, type Widget } from '@/lib/api-client';
 
 interface SidebarProps {
   tenantName?: string;
@@ -36,6 +37,13 @@ const bottomItems: NavItem[] = [
 export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
   const [hovered, setHovered] = useState<string | null>(null);
   const pathname = usePathname();
+  const [publishedWidgets, setPublishedWidgets] = useState<Widget[]>([]);
+
+  useEffect(() => {
+    fetchWidgets()
+      .then((w) => setPublishedWidgets(w.filter((x) => x.status === 'published')))
+      .catch(() => {});
+  }, []);
 
   return (
     <aside style={{
@@ -96,6 +104,48 @@ export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
             </Link>
           );
         })}
+
+        {/* Dynamic widget menu items */}
+        {publishedWidgets.length > 0 && (
+          <>
+            <div style={{
+              margin: '8px 16px 4px', borderTop: '1px solid var(--border)', paddingTop: 8,
+            }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-muted)',
+              }}>WIDGETS</span>
+            </div>
+            {publishedWidgets.map((w) => {
+              const wHref = `/widgets/${w.id}`;
+              const cfg = w.config as Record<string, unknown> | null;
+              const label = (cfg?.menuLabel as string) || w.title;
+              const isHov = hovered === wHref;
+              const isActive = pathname === wHref;
+              return (
+                <Link
+                  key={w.id}
+                  href={wHref}
+                  onMouseEnter={() => setHovered(wHref)}
+                  onMouseLeave={() => setHovered(null)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 16px', marginBottom: 2,
+                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                    textDecoration: 'none',
+                    transition: 'all 0.15s',
+                    background: isActive ? 'var(--surface)' : isHov ? 'var(--surface)' : 'transparent',
+                    color: isActive ? 'var(--accent)' : isHov ? 'var(--text)' : 'var(--text-dim)',
+                    borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+                  }}
+                >
+                  <span style={{ width: 16, textAlign: 'center', fontSize: 11 }}>🔨</span>
+                  <span style={{ flex: 1 }}>{label}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
 
       {/* Bottom nav */}

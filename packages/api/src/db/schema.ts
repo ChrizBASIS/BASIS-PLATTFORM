@@ -185,6 +185,23 @@ export const sandboxSessions = pgTable('sandbox_sessions', {
   closedAt: timestamp('closed_at', { withTimezone: true }),
 });
 
+// ─── Widgets (KI-generierte Komponenten pro Tenant/Projekt) ─────────────────────
+export const widgets = pgTable('widgets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+  projectId: uuid('project_id').references(() => projects.id),
+  sessionId: uuid('session_id').references(() => sandboxSessions.id),
+  title: text('title').notNull(),
+  description: text('description'),
+  code: text('code').notNull(),
+  config: jsonb('config'),
+  status: text('status').default('draft').notNull(),
+  version: integer('version').default(1).notNull(),
+  createdBy: uuid('created_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Token Usage (per Tenant, per Agent, per Month) ────────────────────────────
 export const tokenUsage = pgTable(
   'token_usage',

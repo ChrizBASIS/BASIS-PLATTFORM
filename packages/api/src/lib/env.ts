@@ -8,7 +8,7 @@ const envSchema = z.object({
   KEYCLOAK_CLIENT_ID: z.string().default('basis-api'),
   KEYCLOAK_CLIENT_SECRET: z.string().default(''),
   OPENAI_API_KEY: z.string().default(''),
-  OPENAI_BASE_URL: z.string().default('https://eu.openai.com/v1'),
+  OPENAI_BASE_URL: z.string().default(''),
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
   COOLIFY_URL: z.string().default(''),

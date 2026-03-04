@@ -37,8 +37,19 @@ app.post('/', authMiddleware, tenantMiddleware, rbac('integration', 'create'), a
 
   const { provider, label, baseUrl, credentials } = parsed.data;
 
+  // Normalize credential keys: Dashboard sends baseUrl separately and uses
+  // "password" for Odoo, but the adapter expects "url" and "apiKey" inside credentials.
+  const normalizedCreds = { ...credentials };
+  if (provider === 'odoo') {
+    if (baseUrl && !normalizedCreds.url) normalizedCreds.url = baseUrl;
+    if (normalizedCreds.password && !normalizedCreds.apiKey) {
+      normalizedCreds.apiKey = normalizedCreds.password;
+      delete normalizedCreds.password;
+    }
+  }
+
   // Encrypt credentials — they never touch DB in plaintext
-  const encrypted = encryptCredentials(JSON.stringify(credentials));
+  const encrypted = encryptCredentials(JSON.stringify(normalizedCreds));
 
   // Test connection before saving
   try {
@@ -48,6 +59,7 @@ app.post('/', authMiddleware, tenantMiddleware, rbac('integration', 'create'), a
       return c.json({ error: 'Verbindung fehlgeschlagen — bitte Zugangsdaten prüfen' }, 400);
     }
   } catch (err: any) {
+    console.error('[integrations] Connection test error:', err?.message, err?.cause);
     return c.json({ error: `Verbindungstest fehlgeschlagen: ${err?.message ?? 'Unbekannt'}` }, 400);
   }
 
@@ -166,8 +178,18 @@ app.post('/:id/sync', authMiddleware, tenantMiddleware, rbac('integration', 'man
     });
 
     // Get aggregated summary — NO raw data stored
-    const summary = await adapter.getSummary();
+    const raw: any = await adapter.getSummary();
     const durationMs = Date.now() - start;
+
+    // Normalize summary fields for dashboard compatibility
+    const summary = {
+      totalContacts: raw.totalContacts ?? 0,
+      openDeals: raw.openDeals ?? 0,
+      totalRevenue: raw.revenuePipeline ?? raw.totalRevenue ?? 0,
+      currency: raw.pipelineCurrency ?? raw.currency ?? 'EUR',
+      openInvoices: raw.openInvoices ?? 0,
+      overdueInvoices: raw.overdueInvoices ?? 0,
+    };
 
     // Update integration status
     await db
@@ -213,6 +235,7 @@ app.post('/:id/sync', authMiddleware, tenantMiddleware, rbac('integration', 'man
       durationMs,
     });
 
+    console.error('[integrations] Sync error:', err?.message, err?.stack?.slice(0, 300));
     return c.json({ success: false, error: 'Sync fehlgeschlagen' }, 500);
   }
 });
@@ -238,14 +261,25 @@ app.get('/:id/contacts', authMiddleware, tenantMiddleware, rbac('integration', '
     tag: integration.credentialsTag,
   });
 
-  const contacts = await adapter.getContacts(limit, search);
+  try {
+    const raw = await adapter.getContacts(limit, search);
+    const contacts = raw.map((r: any) => ({
+      id: r.externalId ?? r.id,
+      name: r.name,
+      email: r.email ?? null,
+      phone: r.phone ?? null,
+      company: r.company ?? null,
+    }));
 
-  // Log the read access
-  await db.insert(integrationSyncLog).values({
-    integrationId, tenantId, action: 'read', recordsSynced: contacts.length,
-  });
+    await db.insert(integrationSyncLog).values({
+      integrationId, tenantId, action: 'read', recordsSynced: contacts.length,
+    });
 
-  return c.json({ contacts });
+    return c.json({ contacts });
+  } catch (err: any) {
+    console.error('[integrations] Contacts error:', err?.message);
+    return c.json({ error: 'Kontakte konnten nicht geladen werden' }, 500);
+  }
 });
 
 // ─── GET /integrations/:id/deals — On-demand Deals ──────────────────────────
@@ -267,8 +301,21 @@ app.get('/:id/deals', authMiddleware, tenantMiddleware, rbac('integration', 'rea
     tag: integration.credentialsTag,
   });
 
-  const deals = await adapter.getDeals();
-  return c.json({ deals });
+  try {
+    const raw = await adapter.getDeals();
+    const deals = raw.map((d: any) => ({
+      id: d.externalId ?? d.id,
+      name: d.title ?? d.name ?? '',
+      stage: d.stage ?? 'Unknown',
+      amount: d.value ?? d.amount ?? null,
+      currency: d.currency ?? 'EUR',
+      probability: d.probability ?? null,
+    }));
+    return c.json({ deals });
+  } catch (err: any) {
+    console.error('[integrations] Deals error:', err?.message);
+    return c.json({ error: 'Deals konnten nicht geladen werden' }, 500);
+  }
 });
 
 // ─── GET /integrations/:id/invoices — On-demand Rechnungen ──────────────────
@@ -291,8 +338,22 @@ app.get('/:id/invoices', authMiddleware, tenantMiddleware, rbac('integration', '
     tag: integration.credentialsTag,
   });
 
-  const invoices = await adapter.getInvoices(50, status);
-  return c.json({ invoices });
+  try {
+    const raw = await adapter.getInvoices(50, status);
+    const invoices = raw.map((r: any) => ({
+      id: r.externalId ?? r.id,
+      number: r.number ?? '',
+      amount: r.amount ?? 0,
+      currency: r.currency ?? 'EUR',
+      status: r.status ?? 'draft',
+      dueDate: r.dueDate ?? null,
+      contactName: r.contactName ?? null,
+    }));
+    return c.json({ invoices });
+  } catch (err: any) {
+    console.error('[integrations] Invoices error:', err?.message);
+    return c.json({ error: 'Rechnungen konnten nicht geladen werden' }, 500);
+  }
 });
 
 // ─── DELETE /integrations/:id — Sofort-Widerruf ─────────────────────────────

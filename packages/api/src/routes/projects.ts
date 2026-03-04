@@ -6,6 +6,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
+import { syncTenantYAML } from '../lib/tenant-yaml.js';
 
 const projectsRouter = new Hono();
 
@@ -62,6 +63,8 @@ projectsRouter.post('/', rbac('project', 'create'), async (c) => {
       template: input.template,
     })
     .returning();
+
+  await syncTenantYAML(tenantId);
 
   return c.json({ project }, 201);
 });

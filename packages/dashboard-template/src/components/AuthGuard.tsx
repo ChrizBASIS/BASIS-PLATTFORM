@@ -14,13 +14,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return;
 
     const token = getAccessToken();
+    const expired = isTokenExpired();
 
     if (!token) {
       router.replace('/login');
       return;
     }
 
-    if (isTokenExpired()) {
+    if (expired) {
       refreshAccessToken().then((ok) => {
         if (!ok) {
           clearTokens();

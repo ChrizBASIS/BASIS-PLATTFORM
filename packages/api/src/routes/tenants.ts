@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { tenants, users, tenantMembers, roles, auditLog } from '../db/schema.js';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
+import { syncTenantYAML } from '../lib/tenant-yaml.js';
 
 const tenantsRouter = new Hono();
 
@@ -31,6 +32,22 @@ tenantsRouter.post('/', async (c) => {
   if (existing.length > 0) {
     return c.json({ error: 'Slug already taken' }, 409);
   }
+
+  // Ensure user exists in users table (synced from Keycloak on first action)
+  await db
+    .insert(users)
+    .values({
+      id: user.sub,
+      email: user.email ?? 'unknown@basis.test',
+      name: user.name ?? 'Unknown',
+    })
+    .onConflictDoUpdate({
+      target: users.id,
+      set: {
+        email: sql`EXCLUDED.email`,
+        name: sql`EXCLUDED.name`,
+      },
+    });
 
   const [tenant] = await db
     .insert(tenants)
@@ -98,6 +115,8 @@ tenantsRouter.patch('/:id', tenantMiddleware, rbac('tenant', 'update'), async (c
     .parse(body);
 
   const [updated] = await db.update(tenants).set(input).where(eq(tenants.id, id)).returning();
+
+  await syncTenantYAML(tenantId);
 
   return c.json({ tenant: updated });
 });

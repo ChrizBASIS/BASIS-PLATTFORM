@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
-import { AgentChat } from '@/components/AgentChat';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 
 const ALL_AGENTS = [
@@ -27,13 +27,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 
 export default function AgentsPage() {
   const { tenant, agents } = useDashboardData();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-
-  const openChat = (key: string) => {
-    setSelected(key);
-    setChatOpen(true);
-  };
+  const router = useRouter();
+  const [hovered, setHovered] = useState<string | null>(null);
 
   const enabledTypes = new Set(
     agents.filter((a) => a.enabled).map((a) => a.type),
@@ -61,22 +56,25 @@ export default function AgentsPage() {
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: chatOpen ? '1fr' : 'repeat(auto-fill, minmax(300px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
           gap: 2,
-          transition: 'all 0.3s',
         }}>
           {ALL_AGENTS.map(({ key, name, type }) => {
             const meta = AGENT_META[key]!;
             const isEnabled = type === 'orchestrator' || enabledTypes.has(type) || enabledTypes.size === 0;
             const tasks = (tenant?.agents?.task_summary?.[name] ?? tenant?.agents?.task_summary?.[type]) ?? null;
-            const isSelected = selected === key;
+            const isHov = hovered === key;
 
             return (
               <div
                 key={key}
+                onClick={() => router.push(`/agents/${key}`)}
+                onMouseEnter={() => setHovered(key)}
+                onMouseLeave={() => setHovered(null)}
                 style={{
                   background: 'var(--surface)',
-                  border: `1px solid ${isSelected ? meta.color : 'var(--border)'}`,
+                  border: `1px solid ${isHov ? meta.color : 'var(--border)'}`,
+                  cursor: 'pointer',
                   transition: 'border-color 0.15s',
                 }}
               >
@@ -123,69 +121,23 @@ export default function AgentsPage() {
                   )}
                 </div>
 
-                {/* Chat button */}
+                {/* CTA */}
                 <div style={{ padding: '12px 24px' }}>
-                  <button
-                    onClick={() => isSelected && chatOpen ? setChatOpen(false) : openChat(key)}
-                    style={{
-                      width: '100%', padding: '10px',
-                      background: isSelected && chatOpen ? 'var(--surface-2)' : meta.color,
-                      color: isSelected && chatOpen ? 'var(--text-muted)' : '#080808',
-                      border: 'none', cursor: 'pointer',
-                      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 800,
-                      letterSpacing: '0.1em', textTransform: 'uppercase',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {isSelected && chatOpen ? '● CHAT OFFEN' : `MIT ${name.toUpperCase()} CHATTEN →`}
-                  </button>
+                  <div style={{
+                    width: '100%', padding: '10px', textAlign: 'center',
+                    background: isHov ? meta.color : 'var(--surface-2)',
+                    color: isHov ? '#080808' : 'var(--text-muted)',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 800,
+                    letterSpacing: '0.1em', textTransform: 'uppercase',
+                    transition: 'all 0.15s',
+                  }}>
+                    MIT {name.toUpperCase()} ARBEITEN →
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
-
-        {/* ─── Inline Chat Panel ─────────────────────────────────────── */}
-        {chatOpen && selected && (
-          <div style={{
-            position: 'fixed', bottom: 0, left: 260, right: 0,
-            height: '50vh', background: 'var(--bg)',
-            borderTop: `2px solid ${AGENT_META[selected]?.color ?? 'var(--accent)'}`,
-            zIndex: 50, display: 'flex', flexDirection: 'column',
-          }}>
-            <div style={{
-              padding: '10px 24px', borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <div style={{
-                width: 8, height: 8,
-                background: AGENT_META[selected]?.color ?? 'var(--accent)',
-                animation: 'pulse 1.5s infinite',
-              }} />
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                letterSpacing: '0.2em', textTransform: 'uppercase',
-                color: AGENT_META[selected]?.color ?? 'var(--accent)',
-              }}>
-                CHAT MIT {ALL_AGENTS.find((a) => a.key === selected)?.name.toUpperCase()}
-              </span>
-              <button
-                onClick={() => setChatOpen(false)}
-                style={{
-                  marginLeft: 'auto', background: 'transparent',
-                  border: '1px solid var(--border)', color: 'var(--text-muted)',
-                  padding: '4px 12px', fontFamily: 'var(--font-mono)',
-                  fontSize: 10, fontWeight: 700, cursor: 'pointer',
-                }}
-              >SCHLIESSEN ✕</button>
-            </div>
-            <div style={{ flex: 1 }}>
-              <AgentChat
-                agentName={ALL_AGENTS.find((a) => a.key === selected)?.name}
-              />
-            </div>
-          </div>
-        )}
 
       </main>
     </div>

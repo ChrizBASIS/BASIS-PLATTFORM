@@ -2,13 +2,13 @@ import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { tokenUsage } from '../db/schema.js';
 import {
-  routeMessage,
   buildMessages,
   saveConversation,
   loadConversation,
 } from './orchestrator.js';
 import { getAgent, AGENTS } from './prompts.js';
 import { getEnv } from '../lib/env.js';
+import { getToolsForAgent, executeTool } from './tool-executor.js';
 import type { AgentType, AgentContext, ChatMessage, AgentResponse } from './types.js';
 
 const env = getEnv();
@@ -47,15 +47,7 @@ export async function runAgent(
     }
   }
 
-  // 2. Routing: Orchestrator entscheidet welcher Agent zuständig ist
-  if (!forceAgent) {
-    const routed = routeMessage(userMessage);
-    if (routed !== 'orchestrator' || currentAgent === 'orchestrator') {
-      currentAgent = routed;
-    }
-  }
-
-  // 3. Prüfe ob Agent aktiviert ist
+  // 2. Prüfe ob Agent aktiviert ist
   if (!ctx.enabledAgents.includes(currentAgent) && currentAgent !== 'orchestrator') {
     currentAgent = 'orchestrator';
   }
@@ -78,22 +70,64 @@ export async function runAgent(
     userMessage,
   );
 
-  // 5. OpenAI API Call
+  // 5. OpenAI API Call (with Function Calling)
   let assistantMessage = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  const executedToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages,
-      temperature: 0.7,
-      max_tokens: 1500,
-    });
+    const tools = getToolsForAgent(currentAgent);
+    let currentMessages = [...messages];
+    let toolCallRounds = 0;
+    const MAX_TOOL_ROUNDS = 5;
 
-    assistantMessage = completion.choices[0]?.message?.content ?? 'Keine Antwort erhalten.';
-    inputTokens = completion.usage?.prompt_tokens ?? 0;
-    outputTokens = completion.usage?.completion_tokens ?? 0;
+    // Loop: GPT may call tools multiple times before giving a final answer
+    while (toolCallRounds < MAX_TOOL_ROUNDS) {
+      const completion = await openai.chat.completions.create({
+        model: MODEL,
+        messages: currentMessages,
+        temperature: 0.7,
+        max_tokens: 1500,
+        ...(tools.length > 0 ? { tools } : {}),
+      });
+
+      inputTokens += completion.usage?.prompt_tokens ?? 0;
+      outputTokens += completion.usage?.completion_tokens ?? 0;
+
+      const choice = completion.choices[0];
+
+      // If GPT wants to call tools
+      if (choice?.finish_reason === 'tool_calls' && choice.message.tool_calls?.length) {
+        // Add assistant message with tool calls to history
+        currentMessages.push(choice.message as any);
+
+        // Execute each tool call
+        for (const tc of choice.message.tool_calls) {
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
+          console.log(`[runner] Tool call: ${tc.function.name}(${JSON.stringify(args)})`);
+
+          const result = await executeTool(tc.function.name, args, ctx.tenantId, ctx);
+          currentMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: result,
+          } as any);
+          executedToolCalls.push({ name: tc.function.name, args });
+        }
+        toolCallRounds++;
+        continue; // Let GPT process the tool results
+      }
+
+      // Final text response
+      assistantMessage = choice?.message?.content ?? 'Keine Antwort erhalten.';
+      break;
+    }
+
+    if (!assistantMessage) {
+      assistantMessage = 'Ich habe die Daten abgerufen, konnte aber keine Antwort formulieren. Bitte versuche es nochmal.';
+    }
   } catch (error: any) {
     console.error('OpenAI API error:', error?.message);
 
@@ -168,6 +202,7 @@ export async function runAgent(
       model: MODEL,
       inputTokens,
       outputTokens,
+      toolCalls: executedToolCalls.length > 0 ? executedToolCalls : undefined,
     },
   };
 }
@@ -198,13 +233,6 @@ export async function runAgentStream(
     }
   }
 
-  if (!forceAgent) {
-    const routed = routeMessage(userMessage);
-    if (routed !== 'orchestrator' || currentAgent === 'orchestrator') {
-      currentAgent = routed;
-    }
-  }
-
   if (!ctx.enabledAgents.includes(currentAgent) && currentAgent !== 'orchestrator') {
     currentAgent = 'orchestrator';
   }
@@ -226,10 +254,48 @@ export async function runAgentStream(
 
   // Create streaming response
   let fullResponse = '';
+  const tools = getToolsForAgent(currentAgent);
+
+  // Resolve tool calls and collect them for SSE events
+  let resolvedMessages = [...messages];
+  let preToolTokensIn = 0;
+  let preToolTokensOut = 0;
+  const executedToolCalls: Array<{ name: string; args: Record<string, unknown>; result: string }> = [];
+
+  if (tools.length > 0) {
+    let toolRounds = 0;
+    while (toolRounds < 5) {
+      const preflight = await openai.chat.completions.create({
+        model: MODEL,
+        messages: resolvedMessages,
+        temperature: 0.7,
+        max_tokens: 1500,
+        tools,
+      });
+      preToolTokensIn += preflight.usage?.prompt_tokens ?? 0;
+      preToolTokensOut += preflight.usage?.completion_tokens ?? 0;
+      const ch = preflight.choices[0];
+      if (ch?.finish_reason === 'tool_calls' && ch.message.tool_calls?.length) {
+        resolvedMessages.push(ch.message as any);
+        for (const tc of ch.message.tool_calls) {
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { /* empty */ }
+          console.log(`[runner-stream] Tool call: ${tc.function.name}(${JSON.stringify(args)})`);
+
+          const result = await executeTool(tc.function.name, args, ctx.tenantId, ctx);
+          resolvedMessages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any);
+          executedToolCalls.push({ name: tc.function.name, args, result });
+        }
+        toolRounds++;
+        continue;
+      }
+      break;
+    }
+  }
 
   const openaiStream = await openai.chat.completions.create({
     model: MODEL,
-    messages,
+    messages: resolvedMessages,
     temperature: 0.7,
     max_tokens: 1500,
     stream: true,
@@ -239,13 +305,20 @@ export async function runAgentStream(
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      let inputTokens = 0;
-      let outputTokens = 0;
+      let inputTokens = preToolTokensIn;
+      let outputTokens = preToolTokensOut;
 
       // Send agent info first
       controller.enqueue(encoder.encode(
         `data: ${JSON.stringify({ type: 'agent', agent: currentAgent, agentName: agentDef.name })}\n\n`,
       ));
+
+      // Send tool call events so the dashboard can show them as job cards
+      for (const tc of executedToolCalls) {
+        controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify({ type: 'tool_call', tool: tc.name, args: tc.args })}\n\n`,
+        ));
+      }
 
       try {
         for await (const chunk of openaiStream) {
@@ -258,8 +331,8 @@ export async function runAgentStream(
           }
           // Capture usage from final chunk
           if (chunk.usage) {
-            inputTokens = chunk.usage.prompt_tokens ?? 0;
-            outputTokens = chunk.usage.completion_tokens ?? 0;
+            inputTokens += chunk.usage.prompt_tokens ?? 0;
+            outputTokens += chunk.usage.completion_tokens ?? 0;
           }
         }
 

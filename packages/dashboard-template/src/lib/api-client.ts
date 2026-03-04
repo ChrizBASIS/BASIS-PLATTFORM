@@ -11,6 +11,9 @@ export function getToken(): string | null {
   return getAccessToken();
 }
 
+// Singleton refresh lock — prevents parallel 401 handlers from racing
+let refreshPromise: Promise<boolean> | null = null;
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
@@ -23,7 +26,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
+    // Deduplicate concurrent refresh attempts
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().finally(() => { refreshPromise = null; });
+    }
+    const refreshed = await refreshPromise;
+
     if (refreshed) {
       const newToken = getAccessToken();
       const retry = await fetch(`${API_BASE}/api/v1${path}`, {
@@ -148,9 +156,35 @@ export const AGENT_TYPE_MAP: Record<string, string> = {
   orchestrator: 'orchestrator',
 };
 
+// ─── Load latest conversation for an agent ───────────────────────────────────
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  agent?: string;
+  agentName?: string;
+  timestamp?: string;
+}
+
+export interface LatestConversation {
+  id: string;
+  agentType: string;
+  messages: ConversationMessage[];
+  createdAt: string;
+}
+
+export async function fetchLatestConversation(agentType: string): Promise<LatestConversation | null> {
+  try {
+    const data = await apiFetch<{ conversation: LatestConversation | null }>(
+      `/agents/${agentType}/conversation/latest`,
+    );
+    return data.conversation;
+  } catch { return null; }
+}
+
 // ─── SSE stream types ─────────────────────────────────────────────────────────
 export type StreamEvent =
   | { type: 'agent';  agent: string; agentName: string }
+  | { type: 'tool_call'; tool: string; args: Record<string, unknown> }
   | { type: 'delta';  content: string }
   | { type: 'done';   conversationId: string }
   | { type: 'error';  message: string };
@@ -218,11 +252,19 @@ export async function* streamChat(
 /**
  * Direct (non-streaming) chat to a specific agent type.
  */
+export interface ToolCallInfo {
+  name: string;
+  args: Record<string, unknown>;
+}
+
 export interface DirectChatResponse {
   reply: string;
   agent: string;
   agentName: string;
   conversationId: string;
+  metadata?: {
+    toolCalls?: ToolCallInfo[];
+  };
 }
 
 export async function sendDirectChat(
@@ -397,11 +439,63 @@ export async function revertSandboxSession(sessionId: string): Promise<void> {
   await apiFetch(`/sandbox/session/${sessionId}/revert`, { method: 'POST', body: '{}' });
 }
 
-export async function sendWidgetRequest(sessionId: string, description: string): Promise<{ message: string; widgetId: string }> {
+export interface WidgetResponse {
+  message: string;
+  widgetId: string;
+  title?: string;
+  code?: string;
+  previewReady: boolean;
+}
+
+export interface Widget {
+  id: string;
+  tenantId: string;
+  projectId: string | null;
+  sessionId: string | null;
+  title: string;
+  description: string | null;
+  code: string;
+  config: unknown;
+  status: string;
+  version: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function sendWidgetRequest(
+  sessionId: string,
+  description: string,
+  widgetId?: string,
+): Promise<WidgetResponse> {
   return apiFetch(`/sandbox/session/${sessionId}/widget`, {
     method: 'POST',
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({ description, ...(widgetId ? { widgetId } : {}) }),
   });
+}
+
+export async function fetchWidgets(): Promise<Widget[]> {
+  const data = await apiFetch<{ widgets: Widget[] }>('/sandbox/widgets');
+  return data.widgets;
+}
+
+export async function fetchWidget(id: string): Promise<Widget | null> {
+  try {
+    const data = await apiFetch<{ widget: Widget }>(`/sandbox/widgets/${id}`);
+    return data.widget;
+  } catch { return null; }
+}
+
+export async function updateWidget(id: string, updates: { status?: string; title?: string }): Promise<Widget> {
+  const data = await apiFetch<{ widget: Widget }>(`/sandbox/widgets/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+  return data.widget;
+}
+
+export async function deleteWidget(id: string): Promise<void> {
+  await apiFetch(`/sandbox/widgets/${id}`, { method: 'DELETE' });
 }
 
 // ─── Tenant YAML ──────────────────────────────────────────────────────────────

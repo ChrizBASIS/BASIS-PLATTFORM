@@ -8,7 +8,9 @@ import {
   fetchProjects, createProject, fetchDeployments, deployProject,
   createSandboxSession, publishSandboxSession, revertSandboxSession,
   sendWidgetRequest, fetchTenantYaml, syncTenantYaml, sendDirectChat,
+  fetchWidgets, deleteWidget, updateWidget,
   type Project, type SandboxSession, type Deployment,
+  type Widget, type WidgetResponse,
 } from '@/lib/api-client';
 
 // ─── Nico color + meta ────────────────────────────────────────────────────────
@@ -72,7 +74,12 @@ export default function SandboxPage() {
   const [yaml, setYaml] = useState('');
   const [loadingYaml, setLoadingYaml] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [yamlTab, setYamlTab] = useState<'yaml' | 'projects'>('yaml');
+  const [yamlTab, setYamlTab] = useState<'yaml' | 'widgets' | 'projects'>('yaml');
+
+  // Widgets
+  const [generatedWidgets, setGeneratedWidgets] = useState<Widget[]>([]);
+  const [activeWidget, setActiveWidget] = useState<{ id: string; code: string; title: string } | null>(null);
+  const [loadingWidgets, setLoadingWidgets] = useState(false);
 
   // Nico Chat
   const [nicoMessages, setNicoMessages] = useState<NicoMessage[]>([
@@ -90,6 +97,7 @@ export default function SandboxPage() {
   useEffect(() => {
     fetchProjects().then(setProjects).finally(() => setLoadingProjects(false));
     fetchTenantYaml().then(setYaml).finally(() => setLoadingYaml(false));
+    fetchWidgets().then(setGeneratedWidgets).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -216,23 +224,39 @@ export default function SandboxPage() {
     setNicoTyping(true);
 
     try {
-      // If we have an active sandbox session → try widget request first
-      if (session?.status === 'active') {
-        const keywords = ['widget', 'baue', 'erstelle', 'füge', 'automatisierung', 'button', 'formular', 'chart', 'tabelle'];
-        const isWidgetRequest = keywords.some((k) => msg.toLowerCase().includes(k));
-        if (isWidgetRequest) {
-          const res = await sendWidgetRequest(session.id, msg);
-          setNicoMessages((prev) => [...prev, { role: 'assistant', content: res.message }]);
-          setNicoTyping(false);
-          return;
+      // Only trigger widget GENERATION for explicit creation requests
+      // Pattern: "bau mir", "erstelle ein/einen/eine", "generiere", "baue ein/einen/eine"
+      const lower = msg.toLowerCase();
+      const isCreateWidget = session?.status === 'active' && (
+        /\b(bau|baue)\s+(mir|uns|ein|einen|eine)\b/.test(lower) ||
+        /\b(erstell|generier)\s*(e|en)?\s+(mir|uns|ein|einen|eine)\b/.test(lower) ||
+        /\bneues?\s+widget\b/.test(lower)
+      );
+
+      if (isCreateWidget) {
+        // Generate new widget via GPT
+        setNicoMessages((prev) => [...prev, { role: 'assistant', content: '🔨 Ich baue dein Widget… einen Moment.' }]);
+        const res = await sendWidgetRequest(session!.id, msg);
+        setNicoMessages((prev) => {
+          const filtered = prev.slice(0, -1);
+          return [...filtered, { role: 'assistant', content: res.message }];
+        });
+        if (res.previewReady && res.code) {
+          setActiveWidget({ id: res.widgetId, code: res.code, title: res.title ?? 'Widget' });
+          setYamlTab('widgets');
+          fetchWidgets().then(setGeneratedWidgets).catch(() => {});
+          toast(`Widget "${res.title}" generiert!`, 'success');
         }
+      } else {
+        // Everything else → Nico agent chat (he handles publish, modify, questions via Function Calling)
+        const res = await sendDirectChat('builder', msg, convId);
+        if (res.conversationId) setConvId(res.conversationId);
+        setNicoMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
+        // After Nico responds, refresh widget list in case he published something
+        fetchWidgets().then(setGeneratedWidgets).catch(() => {});
       }
-      // Otherwise → direct chat with Nico agent
-      const res = await sendDirectChat('nico', msg, convId);
-      if (res.conversationId) setConvId(res.conversationId);
-      setNicoMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
-    } catch {
-      setNicoMessages((prev) => [...prev, { role: 'assistant', content: 'Verbindungsfehler — bitte Backend prüfen.' }]);
+    } catch (err: any) {
+      setNicoMessages((prev) => [...prev, { role: 'assistant', content: `Fehler: ${err?.message ?? 'Verbindungsfehler — bitte Backend prüfen.'}` }]);
     } finally {
       setNicoTyping(false);
     }
@@ -357,6 +381,7 @@ export default function SandboxPage() {
             }}>
               {[
                 { id: 'yaml',     label: '📄 YAML-PROFIL' },
+                { id: 'widgets',  label: `🔨 WIDGETS${generatedWidgets.length > 0 ? ` (${generatedWidgets.length})` : ''}` },
                 { id: 'projects', label: '⚙ PROJEKT' },
               ].map((t) => (
                 <button
@@ -444,6 +469,139 @@ export default function SandboxPage() {
                     })}</pre>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ── Widgets tab ──────────────────────────────────────── */}
+            {yamlTab === 'widgets' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* Widget Preview */}
+                {activeWidget ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {/* Preview toolbar */}
+                    <div style={{
+                      padding: '10px 20px', borderBottom: '1px solid var(--border)',
+                      display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+                    }}>
+                      <div style={{ width: 6, height: 6, background: 'var(--positive)' }} />
+                      <p style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                        letterSpacing: '0.1em', color: 'var(--text)', flex: 1,
+                      }}>
+                        PREVIEW: {activeWidget.title}
+                      </p>
+                      <button
+                        onClick={() => {
+                          updateWidget(activeWidget.id, { status: 'published' }).then(() => {
+                            toast('Widget veröffentlicht!', 'success');
+                            fetchWidgets().then(setGeneratedWidgets).catch(() => {});
+                          }).catch(() => toast('Fehler beim Veröffentlichen', 'error'));
+                        }}
+                        style={{
+                          padding: '5px 12px', background: 'var(--positive)',
+                          border: 'none', color: '#080808',
+                          fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 800,
+                          cursor: 'pointer', letterSpacing: '0.08em',
+                        }}>✓ PUBLISH</button>
+                      <button
+                        onClick={() => setActiveWidget(null)}
+                        style={{
+                          padding: '5px 12px', background: 'transparent',
+                          border: '1px solid var(--border)', color: 'var(--text-muted)',
+                          fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                          cursor: 'pointer', letterSpacing: '0.08em',
+                        }}>✕ SCHLIEßEN</button>
+                    </div>
+                    {/* iframe preview */}
+                    <div style={{ flex: 1, background: '#0a0a0a' }}>
+                      <iframe
+                        srcDoc={activeWidget.code}
+                        sandbox="allow-scripts"
+                        style={{
+                          width: '100%', height: '100%', border: 'none',
+                          background: '#0a0a0a',
+                        }}
+                        title={`Widget Preview: ${activeWidget.title}`}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                    {/* Widget list */}
+                    {generatedWidgets.length === 0 ? (
+                      <div style={{ textAlign: 'center', paddingTop: 60 }}>
+                        <p style={{
+                          fontSize: 40, marginBottom: 16,
+                        }}>🔨</p>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+                          Noch keine Widgets
+                        </p>
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 300, margin: '0 auto' }}>
+                          Beschreibe Nico im Chat was du brauen möchtest. Er generiert dir ein Widget mit Live-Preview.
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <p style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                          letterSpacing: '0.15em', color: 'var(--text-muted)', marginBottom: 12,
+                        }}>GENERIERTE WIDGETS</p>
+                        {generatedWidgets.map((w) => (
+                          <div key={w.id} style={{
+                            padding: '14px 16px', background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            display: 'flex', alignItems: 'center', gap: 12,
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+                                {w.title}
+                              </p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{
+                                  width: 6, height: 6,
+                                  background: w.status === 'published' ? 'var(--positive)' : w.status === 'draft' ? 'var(--warning)' : 'var(--text-muted)',
+                                }} />
+                                <span style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                                  letterSpacing: '0.1em', textTransform: 'uppercase',
+                                  color: w.status === 'published' ? 'var(--positive)' : 'var(--text-muted)',
+                                }}>{w.status}</span>
+                                {w.description && (
+                                  <span style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: 9,
+                                    color: 'var(--text-muted)', overflow: 'hidden',
+                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200,
+                                  }}>{w.description}</span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setActiveWidget({ id: w.id, code: w.code, title: w.title })}
+                              style={{
+                                padding: '5px 10px', background: NICO.color,
+                                border: 'none', color: '#080808',
+                                fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 800,
+                                cursor: 'pointer', letterSpacing: '0.08em',
+                              }}>PREVIEW</button>
+                            <button
+                              onClick={() => {
+                                deleteWidget(w.id).then(() => {
+                                  setGeneratedWidgets((prev) => prev.filter((x) => x.id !== w.id));
+                                  toast('Widget gelöscht', 'info');
+                                }).catch(() => toast('Fehler beim Löschen', 'error'));
+                              }}
+                              style={{
+                                padding: '5px 10px', background: 'transparent',
+                                border: '1px solid var(--border)', color: 'var(--text-muted)',
+                                fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                                cursor: 'pointer',
+                              }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

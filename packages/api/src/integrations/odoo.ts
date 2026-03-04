@@ -1,10 +1,11 @@
 /**
- * Odoo CRM Adapter — JSON-RPC
+ * Odoo CRM Adapter — XML-RPC via /jsonrpc endpoint
  *
  * Security:
  * - Read-only by default (search_read only)
  * - Credentials never logged or returned in errors
  * - No raw customer data persisted
+ * - API key auth (not session) — works with Odoo SaaS
  */
 
 import type {
@@ -32,19 +33,27 @@ export class OdooAdapter implements CRMAdapter {
     this.apiKey = credentials.apiKey;
   }
 
-  // ─── JSON-RPC Helper ────────────────────────────────────────────────────────
-  private async jsonrpc(endpoint: string, params: Record<string, unknown>): Promise<any> {
-    const res = await fetch(`${this.url}${endpoint}`, {
+  // ─── JSON-RPC Helper (XML-RPC services via /jsonrpc endpoint) ─────────────
+  private async jsonrpc(service: string, method: string, args: unknown[], retries = 2): Promise<any> {
+    const res = await fetch(`${this.url}/jsonrpc`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'call',
         id: Date.now(),
-        params,
+        params: { service, method, args },
       }),
       signal: AbortSignal.timeout(15_000),
     });
+
+    // Retry on 429 rate limit
+    if (res.status === 429 && retries > 0) {
+      const wait = Math.min(2000 * (3 - retries), 5000);
+      console.warn(`[OdooAdapter] 429 rate limit — retrying in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+      return this.jsonrpc(service, method, args, retries - 1);
+    }
 
     if (!res.ok) {
       throw new Error(`Odoo API error: ${res.status}`);
@@ -52,32 +61,35 @@ export class OdooAdapter implements CRMAdapter {
 
     const data = await res.json();
     if (data.error) {
-      // NEVER include credentials in error message
+      const errData = data.error.data;
+      console.error('[OdooAdapter] RPC error detail:', {
+        message: data.error.message,
+        code: errData?.name ?? errData?.exception_type,
+        debug: errData?.debug?.slice(0, 200),
+      });
       throw new Error(`Odoo RPC error: ${data.error.message ?? 'Unknown'}`);
     }
 
     return data.result;
   }
 
-  // ─── Authentication ─────────────────────────────────────────────────────────
+  // ─── Authentication (XML-RPC — works with API keys on Odoo SaaS) ──────────
   private async authenticate(): Promise<number> {
     if (this.uid) return this.uid;
 
-    const uid = await this.jsonrpc('/web/session/authenticate', {
-      db: this.db,
-      login: this.username,
-      password: this.apiKey,
-    });
+    const uid = await this.jsonrpc('common', 'authenticate', [
+      this.db, this.username, this.apiKey, {},
+    ]);
 
-    if (!uid?.uid) {
+    if (!uid || uid === false) {
       throw new Error('Odoo authentication failed — check credentials');
     }
 
-    this.uid = uid.uid;
-    return this.uid!;
+    this.uid = uid as number;
+    return this.uid;
   }
 
-  // ─── Search/Read Helper (read-only) ─────────────────────────────────────────
+  // ─── Search/Read Helper (read-only, XML-RPC execute_kw) ────────────────────
   private async searchRead(
     model: string,
     domain: unknown[] = [],
@@ -85,18 +97,14 @@ export class OdooAdapter implements CRMAdapter {
     limit = 50,
     order = 'id desc',
   ): Promise<any[]> {
-    await this.authenticate();
+    const uid = await this.authenticate();
 
-    return this.jsonrpc('/web/dataset/call_kw', {
-      model,
-      method: 'search_read',
-      args: [domain],
-      kwargs: {
-        fields,
-        limit,
-        order,
-      },
-    }) ?? [];
+    return this.jsonrpc('object', 'execute_kw', [
+      this.db, uid, this.apiKey,
+      model, 'search_read',
+      [domain],
+      { fields, limit, order },
+    ]) ?? [];
   }
 
   // ─── CRMAdapter Interface ──────────────────────────────────────────────────
@@ -105,7 +113,8 @@ export class OdooAdapter implements CRMAdapter {
     try {
       await this.authenticate();
       return true;
-    } catch {
+    } catch (err: any) {
+      console.error('[OdooAdapter] testConnection failed:', err?.message);
       return false;
     }
   }
@@ -119,7 +128,7 @@ export class OdooAdapter implements CRMAdapter {
     const records = await this.searchRead(
       'res.partner',
       domain,
-      ['name', 'email', 'phone', 'company_name', 'category_id', 'date'],
+      ['name', 'email', 'phone', 'company_name', 'category_id', 'write_date'],
       limit,
     );
 
@@ -130,7 +139,7 @@ export class OdooAdapter implements CRMAdapter {
       phone: r.phone || undefined,
       company: r.company_name || undefined,
       tags: r.category_id?.map?.((t: any) => String(t)) ?? [],
-      lastContact: r.date || undefined,
+      lastContact: r.write_date || undefined,
     }));
   }
 
@@ -213,16 +222,15 @@ export class OdooAdapter implements CRMAdapter {
   }
 
   async getSummary(): Promise<CRMSummary> {
-    const [contacts, deals, invoices, activities] = await Promise.all([
-      this.searchRead('res.partner', [['customer_rank', '>', 0]], ['id'], 1000),
-      this.searchRead('crm.lead', [['type', '=', 'opportunity'], ['active', '=', true]], ['expected_revenue'], 500),
-      this.searchRead('account.move', [
-        ['move_type', '=', 'out_invoice'],
-        ['payment_state', '!=', 'paid'],
-        ['invoice_date_due', '<', new Date().toISOString().split('T')[0]],
-      ], ['id'], 500),
-      this.searchRead('mail.activity', [], ['id'], 100),
-    ]);
+    // Sequential to avoid Odoo SaaS 429 rate limit
+    const contacts = await this.searchRead('res.partner', [['customer_rank', '>', 0]], ['id'], 1000);
+    const deals = await this.searchRead('crm.lead', [['type', '=', 'opportunity'], ['active', '=', true]], ['expected_revenue'], 500);
+    const invoices = await this.searchRead('account.move', [
+      ['move_type', '=', 'out_invoice'],
+      ['payment_state', '!=', 'paid'],
+      ['invoice_date_due', '<', new Date().toISOString().split('T')[0]],
+    ], ['id'], 500);
+    const activities = await this.searchRead('mail.activity', [], ['id'], 100);
 
     const pipeline = deals.reduce((sum: number, d: any) => sum + (d.expected_revenue ?? 0), 0);
 

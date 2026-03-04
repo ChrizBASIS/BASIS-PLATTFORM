@@ -8,6 +8,7 @@ import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
 import { runAgent, runAgentStream } from '../agents/runner.js';
 import { getAllAgents } from '../agents/prompts.js';
+import { syncTenantYAML } from '../lib/tenant-yaml.js';
 import type { AgentType } from '../agents/types.js';
 
 const agentsRouter = new Hono();
@@ -162,6 +163,43 @@ agentsRouter.post('/:type/chat', rbac('agent', 'read'), async (c) => {
   });
 });
 
+// GET /agents/:type/conversation/latest — Load latest conversation for an agent type
+agentsRouter.get('/:type/conversation/latest', rbac('agent', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+  const user = c.get('user');
+  const agentType = c.req.param('type');
+
+  if (!AGENT_TYPES.includes(agentType as (typeof AGENT_TYPES)[number])) {
+    return c.json({ error: 'Unbekannter Agent' }, 400);
+  }
+
+  const [conversation] = await db
+    .select()
+    .from(agentConversations)
+    .where(
+      and(
+        eq(agentConversations.tenantId, tenantId),
+        eq(agentConversations.agentType, agentType),
+        eq(agentConversations.userId, user.sub),
+      ),
+    )
+    .orderBy(desc(agentConversations.createdAt))
+    .limit(1);
+
+  if (!conversation) {
+    return c.json({ conversation: null });
+  }
+
+  return c.json({
+    conversation: {
+      id: conversation.id,
+      agentType: conversation.agentType,
+      messages: conversation.messages,
+      createdAt: conversation.createdAt,
+    },
+  });
+});
+
 // GET /agents/list — All available agents with their info
 agentsRouter.get('/list', async (c) => {
   const tenantId = c.get('tenantId');
@@ -261,6 +299,8 @@ agentsRouter.patch('/config', async (c) => {
       enabled: input.enabled,
     });
   }
+
+  await syncTenantYAML(tenantId);
 
   return c.json({ ok: true, agentType: input.agentType, enabled: input.enabled });
 });
