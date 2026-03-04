@@ -11,6 +11,19 @@ const projectsRouter = new Hono();
 
 projectsRouter.use('/*', authMiddleware, tenantMiddleware);
 
+// GET /projects — List all projects for tenant
+projectsRouter.get('/', rbac('project', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+
+  const all = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.tenantId, tenantId))
+    .orderBy(desc(projects.createdAt));
+
+  return c.json({ projects: all });
+});
+
 // POST /projects — Create new project
 projectsRouter.post('/', rbac('project', 'create'), async (c) => {
   const tenantId = c.get('tenantId');

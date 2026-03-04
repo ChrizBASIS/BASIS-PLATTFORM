@@ -302,6 +302,112 @@ export async function fetchMembers(tenantId: string): Promise<TenantMember[]> {
   return data.members;
 }
 
+// ─── Projects + Sandbox (Build Mode) ─────────────────────────────────────────
+export interface Project {
+  id: string;
+  name: string;
+  subdomain: string;
+  template: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface SandboxSession {
+  id: string;
+  projectId: string;
+  branchName: string;
+  status: 'active' | 'published' | 'reverted';
+  changes: unknown[];
+  previewUrl: string | null;
+  createdAt: string;
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export async function fetchProjects(): Promise<Project[]> {
+  try {
+    const data = await apiFetch<{ projects: Project[] }>('/projects');
+    return data.projects;
+  } catch { return []; }
+}
+
+export async function createProject(payload: { name: string; subdomain: string; template: string }): Promise<Project> {
+  const data = await apiFetch<{ project: Project }>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data.project;
+}
+
+export async function fetchDeployments(projectId: string): Promise<Deployment[]> {
+  try {
+    const data = await apiFetch<{ deployments: Deployment[] }>(`/projects/${projectId}/deployments`);
+    return data.deployments;
+  } catch { return []; }
+}
+
+export async function deployProject(projectId: string): Promise<Deployment> {
+  const data = await apiFetch<{ deployment: Deployment }>(`/projects/${projectId}/deploy`, { method: 'POST', body: '{}' });
+  return data.deployment;
+}
+
+export async function createSandboxSession(projectId: string): Promise<SandboxSession> {
+  const data = await apiFetch<{ session: SandboxSession }>('/sandbox/session', {
+    method: 'POST',
+    body: JSON.stringify({ projectId }),
+  });
+  return data.session;
+}
+
+export async function fetchSandboxSession(sessionId: string): Promise<SandboxSession | null> {
+  try {
+    const data = await apiFetch<{ session: SandboxSession }>(`/sandbox/session/${sessionId}`);
+    return data.session;
+  } catch { return null; }
+}
+
+export async function publishSandboxSession(sessionId: string): Promise<void> {
+  await apiFetch(`/sandbox/session/${sessionId}/publish`, { method: 'POST', body: '{}' });
+}
+
+export async function revertSandboxSession(sessionId: string): Promise<void> {
+  await apiFetch(`/sandbox/session/${sessionId}/revert`, { method: 'POST', body: '{}' });
+}
+
+export async function sendWidgetRequest(sessionId: string, description: string): Promise<{ message: string; widgetId: string }> {
+  return apiFetch(`/sandbox/session/${sessionId}/widget`, {
+    method: 'POST',
+    body: JSON.stringify({ description }),
+  });
+}
+
+// ─── Tenant YAML ──────────────────────────────────────────────────────────────
+export async function fetchTenantYaml(): Promise<string> {
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1/tenant-profile/yaml`,
+      {
+        headers: {
+          Accept: 'text/plain',
+          ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+        },
+      },
+    );
+    if (!res.ok) return '';
+    return res.text();
+  } catch { return ''; }
+}
+
+export async function syncTenantYaml(): Promise<void> {
+  await apiFetch('/tenant-profile/sync', { method: 'POST', body: '{}' });
+}
+
 // ─── Conversations ───────────────────────────────────────────────────────────
 export interface Conversation {
   id: string;
