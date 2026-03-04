@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
+import { useToast } from '@/components/Toast';
 import {
   updateTenantName, toggleAgent, fetchMembers,
   type TenantMember,
@@ -10,6 +11,7 @@ import {
 
 export default function SettingsPage() {
   const { tenant, agents, refetch } = useDashboardData();
+  const { toast } = useToast();
   const [section, setSection] = useState<'general' | 'agents' | 'team' | 'gdpr'>('general');
 
   // General
@@ -52,6 +54,7 @@ export default function SettingsPage() {
       await updateTenantName(tenant.id, name.trim());
       refetch();
       setNameSaved(true);
+      toast('Name gespeichert', 'success');
       setTimeout(() => setNameSaved(false), 2000);
     } finally {
       setSavingName(false);
@@ -64,8 +67,9 @@ export default function SettingsPage() {
     try {
       await toggleAgent(agentType, enabled);
       refetch();
-    } catch {
+    } catch (e: unknown) {
       setAgentToggles((prev) => ({ ...prev, [agentType]: !enabled }));
+      toast(e instanceof Error ? e.message : 'Fehler beim Umschalten', 'error');
     } finally {
       setTogglingAgent(null);
     }

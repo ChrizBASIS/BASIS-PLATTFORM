@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useToast } from '@/components/Toast';
 import {
   fetchIntegrations, createIntegration, testIntegration,
   syncIntegration, deleteIntegration, fetchContacts, fetchDeals,
@@ -63,6 +64,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function IntegrationsPage() {
   const { tenant } = useDashboardData();
+  const { toast } = useToast();
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,8 +114,10 @@ export default function IntegrationsPage() {
       setShowConnect(false);
       setFields({});
       setBaseUrl('');
+      toast('Integration verbunden', 'success');
     } catch (e: unknown) {
       setConnectError(e instanceof Error ? e.message : 'Verbindung fehlgeschlagen');
+      toast('Verbindung fehlgeschlagen', 'error');
     } finally {
       setConnecting(false);
     }
@@ -127,6 +131,9 @@ export default function IntegrationsPage() {
       const res = await testIntegration(selected.id);
       setIntegrations((prev) => prev.map((i) => i.id === selected.id ? { ...i, status: res.status as Integration['status'] } : i));
       setSelected((s) => s ? { ...s, status: res.status as Integration['status'] } : s);
+      toast(res.success ? 'Verbindung erfolgreich' : 'Verbindung fehlgeschlagen', res.success ? 'success' : 'error');
+    } catch {
+      toast('Verbindungstest fehlgeschlagen', 'error');
     } finally {
       setTesting(false);
     }
@@ -142,6 +149,9 @@ export default function IntegrationsPage() {
       const now = new Date().toISOString();
       setIntegrations((prev) => prev.map((i) => i.id === selected.id ? { ...i, lastSyncedAt: now, status: 'active' } : i));
       setSelected((s) => s ? { ...s, lastSyncedAt: now, status: 'active' } : s);
+      toast('Sync abgeschlossen — YAML aktualisiert', 'success');
+    } catch {
+      toast('Sync fehlgeschlagen', 'error');
     } finally {
       setSyncing(false);
     }
@@ -177,6 +187,9 @@ export default function IntegrationsPage() {
       await deleteIntegration(selected.id);
       setIntegrations((prev) => prev.filter((i) => i.id !== selected.id));
       setSelected(null);
+      toast('Integration entfernt', 'info');
+    } catch {
+      toast('Löschen fehlgeschlagen', 'error');
     } finally {
       setDeleting(false);
       setConfirmDelete(false);

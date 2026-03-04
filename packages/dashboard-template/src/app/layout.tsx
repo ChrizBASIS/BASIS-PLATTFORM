@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AuthGuard } from '@/components/AuthGuard';
+import { ToastProvider } from '@/components/Toast';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <ThemeProvider><AuthGuard>{children}</AuthGuard></ThemeProvider>
+        <ThemeProvider><ToastProvider><AuthGuard>{children}</AuthGuard></ToastProvider></ThemeProvider>
       </body>
     </html>
   );

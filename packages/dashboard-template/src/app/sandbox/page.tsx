@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
+import { useToast } from '@/components/Toast';
 import {
   fetchProjects, createProject, fetchDeployments, deployProject,
   createSandboxSession, publishSandboxSession, revertSandboxSession,
@@ -44,6 +45,7 @@ interface NicoMessage {
 
 export default function SandboxPage() {
   const { tenant } = useDashboardData();
+  const { toast } = useToast();
 
   // Projects
   const [projects, setProjects] = useState<Project[]>([]);
@@ -133,8 +135,10 @@ export default function SandboxPage() {
     try {
       const s = await createSandboxSession(selectedProject.id);
       setSession(s);
+      toast('Sandbox gestartet', 'success');
       addNicoMessage(`Sandbox für **${selectedProject.name}** gestartet. Branch: \`${s.branchName}\`\n\nIch bin bereit! Beschreibe was ich bauen soll.`);
     } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Sandbox-Start fehlgeschlagen', 'error');
       addNicoMessage(`Fehler beim Starten der Sandbox: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setStartingSession(false);
@@ -148,8 +152,10 @@ export default function SandboxPage() {
     try {
       const d = await deployProject(selectedProject.id);
       setDeployments((prev) => [d, ...prev]);
+      toast('Deployment gestartet', 'success');
       addNicoMessage(`Deployment gestartet! Status: **${d.status}**\n\nDein Projekt wird unter \`${selectedProject.subdomain}.basis.app\` erreichbar sein.`);
     } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Deployment fehlgeschlagen', 'error');
       addNicoMessage(`Deploy-Fehler: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setDeploying(false);
@@ -159,16 +165,26 @@ export default function SandboxPage() {
   // ─── Publish / Revert session ───────────────────────────────────────────────
   const handlePublish = async () => {
     if (!session) return;
-    await publishSandboxSession(session.id);
-    setSession((s) => s ? { ...s, status: 'published' } : s);
-    addNicoMessage('Änderungen wurden ins Live-Dashboard übernommen. ✓');
+    try {
+      await publishSandboxSession(session.id);
+      setSession((s) => s ? { ...s, status: 'published' } : s);
+      toast('Änderungen veröffentlicht', 'success');
+      addNicoMessage('Änderungen wurden ins Live-Dashboard übernommen. ✓');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Publish fehlgeschlagen', 'error');
+    }
   };
 
   const handleRevert = async () => {
     if (!session) return;
-    await revertSandboxSession(session.id);
-    setSession(null);
-    addNicoMessage('Sandbox verworfen — keine Änderungen am Live-Dashboard.');
+    try {
+      await revertSandboxSession(session.id);
+      setSession(null);
+      toast('Sandbox verworfen', 'info');
+      addNicoMessage('Sandbox verworfen — keine Änderungen am Live-Dashboard.');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Revert fehlgeschlagen', 'error');
+    }
   };
 
   // ─── Sync YAML ──────────────────────────────────────────────────────────────
@@ -178,6 +194,9 @@ export default function SandboxPage() {
       await syncTenantYaml();
       const fresh = await fetchTenantYaml();
       setYaml(fresh);
+      toast('YAML-Profil synchronisiert', 'success');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Sync fehlgeschlagen', 'error');
     } finally {
       setSyncing(false);
     }
