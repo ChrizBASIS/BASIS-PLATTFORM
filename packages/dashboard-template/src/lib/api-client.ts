@@ -408,6 +408,83 @@ export async function syncTenantYaml(): Promise<void> {
   await apiFetch('/tenant-profile/sync', { method: 'POST', body: '{}' });
 }
 
+// ─── Integrations (CRM) ─────────────────────────────────────────────────────
+export interface Integration {
+  id: string;
+  provider: 'odoo' | 'hubspot' | 'salesforce' | 'pipedrive' | 'custom';
+  label: string;
+  status: 'active' | 'error' | 'pending';
+  lastSyncedAt: string | null;
+  syncError: string | null;
+  createdAt: string;
+}
+
+export interface CrmContact {
+  id: string | number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+}
+
+export interface CrmDeal {
+  id: string | number;
+  name: string;
+  stage: string;
+  amount: number | null;
+  currency?: string;
+  probability?: number;
+}
+
+export interface CrmSummary {
+  totalContacts: number;
+  openDeals: number;
+  totalRevenue: number;
+  currency: string;
+  openInvoices: number;
+  overdueInvoices: number;
+}
+
+export async function fetchIntegrations(): Promise<Integration[]> {
+  try {
+    const data = await apiFetch<{ integrations: Integration[] }>('/integrations');
+    return data.integrations;
+  } catch { return []; }
+}
+
+export async function createIntegration(payload: {
+  provider: string; label?: string; baseUrl?: string; credentials: Record<string, string>;
+}): Promise<{ id: string; provider: string; label: string; status: string }> {
+  return apiFetch('/integrations', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function testIntegration(id: string): Promise<{ success: boolean; status: string }> {
+  return apiFetch(`/integrations/${id}/test`, { method: 'POST', body: '{}' });
+}
+
+export async function syncIntegration(id: string): Promise<{ success: boolean; summary?: CrmSummary }> {
+  return apiFetch(`/integrations/${id}/sync`, { method: 'POST', body: '{}' });
+}
+
+export async function deleteIntegration(id: string): Promise<void> {
+  await apiFetch(`/integrations/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchContacts(integrationId: string, search?: string): Promise<CrmContact[]> {
+  try {
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    const data = await apiFetch<{ contacts: CrmContact[] }>(`/integrations/${integrationId}/contacts${q}`);
+    return data.contacts;
+  } catch { return []; }
+}
+
+export async function fetchDeals(integrationId: string): Promise<CrmDeal[]> {
+  try {
+    const data = await apiFetch<{ deals: CrmDeal[] }>(`/integrations/${integrationId}/deals`);
+    return data.deals;
+  } catch { return []; }
+}
+
 // ─── Conversations ───────────────────────────────────────────────────────────
 export interface Conversation {
   id: string;

@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
   { label: 'Gespräche',     href: '/conversations' },
   { label: 'Analysen',      href: '/analytics' },
   { label: 'Build Mode',    href: '/sandbox' },
+  { label: 'Integrationen', href: '/integrations' },
   { label: 'Team',          href: '/team' },
   { label: 'Abrechnung',    href: '/billing' },
 ];
