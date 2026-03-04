@@ -65,6 +65,7 @@ export async function fetchAgents(): Promise<AgentInfo[]> {
 
 // ─── Tenant Profile (JSON) ────────────────────────────────────────────────────
 export interface TenantProfileData {
+  id?: string;
   meta: { name: string; plan: string; last_updated: string; version: number };
   business: { industry: string; company_size: string; description: string };
   tasks: Array<{
@@ -273,4 +274,29 @@ export async function analyzeOnboarding(tasks: AnalyzeTask[]): Promise<AnalyzeRe
     method: 'POST',
     body: JSON.stringify({ tasks }),
   });
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+export async function updateTenantName(tenantId: string, name: string): Promise<void> {
+  await apiFetch(`/tenants/${tenantId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function toggleAgent(agentType: string, enabled: boolean): Promise<void> {
+  await apiFetch('/agents/config', {
+    method: 'PATCH',
+    body: JSON.stringify({ agentType, enabled }),
+  });
+}
+
+export interface TenantMember {
+  id: string; email: string; name: string | null;
+  role: string; joinedAt: string;
+}
+
+export async function fetchMembers(tenantId: string): Promise<TenantMember[]> {
+  const data = await apiFetch<{ members: TenantMember[] }>(`/tenants/${tenantId}/members`);
+  return data.members;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth';
 
 interface SidebarProps {
@@ -16,7 +17,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/', active: true },
+  { label: 'Dashboard', href: '/' },
   { label: 'Agenten', href: '/agents', badge: '7' },
   { label: 'Build Mode', href: '/sandbox' },
   { label: 'Analysen', href: '/analytics' },
@@ -32,6 +33,7 @@ const bottomItems: NavItem[] = [
 
 export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const pathname = usePathname();
 
   return (
     <aside style={{
@@ -62,7 +64,7 @@ export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
       <nav style={{ flex: 1, padding: '12px 12px' }}>
         {navItems.map((item) => {
           const isHov = hovered === item.href;
-          const isActive = item.active;
+          const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           return (
             <a
               key={item.href}

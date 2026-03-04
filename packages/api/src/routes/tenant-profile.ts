@@ -32,7 +32,7 @@ app.get('/json', authMiddleware, tenantMiddleware, rbac('tenant', 'read'), async
 
   try {
     const profile = await generateTenantProfile(tenantId);
-    return c.json({ profile });
+    return c.json({ profile: { ...profile, id: tenantId } });
   } catch (error: any) {
     if (error?.message?.includes('nicht gefunden')) {
       return c.json({ error: 'Kein Profil vorhanden — bitte Onboarding abschließen' }, 404);
