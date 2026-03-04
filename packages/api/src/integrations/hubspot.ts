@@ -55,22 +55,13 @@ export class HubSpotAdapter implements CRMAdapter {
     }
   }
 
-  async getContacts(limit = 50, search?: string): Promise<CRMContact[]> {
-    let data: any;
-
-    if (search) {
-      data = await this.get('/crm/v3/objects/contacts/search', {});
-      // HubSpot search is POST — fallback to list for simplicity
-      data = await this.get('/crm/v3/objects/contacts', {
-        limit: String(limit),
-        properties: 'firstname,lastname,email,phone,company',
-      });
-    } else {
-      data = await this.get('/crm/v3/objects/contacts', {
-        limit: String(limit),
-        properties: 'firstname,lastname,email,phone,company',
-      });
-    }
+  async getContacts(limit = 50, _search?: string): Promise<CRMContact[]> {
+    // NOTE: HubSpot search requires POST, not GET — using list endpoint for now.
+    // TODO: Implement POST-based search when needed.
+    const data = await this.get('/crm/v3/objects/contacts', {
+      limit: String(limit),
+      properties: 'firstname,lastname,email,phone,company',
+    });
 
     return (data.results ?? []).map((r: any) => ({
       externalId: r.id,

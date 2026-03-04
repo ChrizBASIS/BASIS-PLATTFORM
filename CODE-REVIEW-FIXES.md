@@ -104,12 +104,89 @@
 |-------|--------|-----------|
 | `integrations/types.ts` | ✅ | CRMAdapter Interface, Unified Schema, Provider-Types |
 | `integrations/odoo.ts` | ✅ | JSON-RPC, read-only, 15s timeout, no credential leaks |
-| `integrations/hubspot.ts` | ✅ | REST v3, read-only, token never in errors |
+| `integrations/hubspot.ts` | ✅ (nach Fix) | REST v3, read-only, token never in errors — toter Search-Code entfernt |
 | `integrations/registry.ts` | ✅ | Factory pattern, decrypts in-memory only |
-| `lib/crypto.ts` | ✅ | AES-256-GCM, random IV, auth tag, safe error messages |
+| `lib/crypto.ts` | ✅ (nach Fix) | AES-256-GCM, random IV, auth tag — jetzt `getEnv()` statt `process.env` |
 | `routes/integrations.ts` | ✅ | RBAC enforced, credentials never returned, hard delete |
 | `db/schema.ts` (+2 tables) | ✅ | integrations + integration_sync_log with FKs |
-| `seed-rbac.ts` (+3 perms) | ✅ | integration:create/read/manage, assigned to correct roles |
+| `seed-rbac.ts` (+3 perms) | ✅ | integration:create/read/manage, assigned to correct roles (31 total) |
 | `gdpr.ts` (updated) | ✅ | Cascade delete includes sync logs + integrations |
-| `tenant-yaml.ts` (updated) | ✅ | integrations + crm_summary sections |
+| `tenant-yaml.ts` (updated) | ✅ | integrations + crm_summary sections, nutzt tenantMembers korrekt |
 | `agents/prompts.ts` (updated) | ✅ | CRM tools for Marie, Clara, Marco |
+
+### Phase 4 Fixes (vom Reviewer angewendet)
+
+#### 12. `crypto.ts` — `process.env` statt `getEnv()`
+- **Problem:** `getKey()` nutzte `process.env.CRM_ENCRYPTION_KEY` direkt, inkonsistent mit restlicher Codebase
+- **Fix:** Nutzt jetzt `getEnv().CRM_ENCRYPTION_KEY`
+
+#### 13. `hubspot.ts` — Toter Code bei getContacts
+- **Problem:** Search-Branch machte einen sinnlosen GET-Request zum Search-Endpoint (der POST erwartet), überschrieb sofort das Ergebnis mit dem List-Endpoint
+- **Fix:** Vereinfacht — nur List-Endpoint, TODO-Kommentar für POST-basierte Suche
+
+### Phase 4 Positive Highlights
+
+- **Sicherheit:** Credentials werden AES-256-GCM verschlüsselt gespeichert, nur in-memory entschlüsselt
+- **DSGVO:** HARD DELETE bei Integration-Löschung (kein Soft-Delete für Credentials)
+- **Architektur:** Adapter-Pattern mit Registry sauber umgesetzt, erweiterbar für Salesforce/Pipedrive
+- **Tenant-Isolation:** Alle Integration-Endpoints prüfen `tenantId`, RBAC durchgängig
+- **Agent-Kontext:** CRM-Daten fließen über YAML-Profil in den Agent-Kontext — keine Raw-Daten an LLMs
+
+### Offene Hinweise Phase 4
+
+5. **`integrations.ts` `/providers` fehlt `integration:read` RBAC** — Aktuell kann jeder authentifizierte User die Provider-Liste sehen (nur `authMiddleware + tenantMiddleware`, kein RBAC). Wahrscheinlich gewollt (kein sensibles Datum), aber inkonsistent mit den anderen Endpoints.
+
+6. **Odoo `getSummary()` lädt bis zu 2000 Records** — Bei großen Kunden-Instanzen könnte das langsam sein. Für MVP OK, langfristig: COUNT statt fetch + length.
+
+7. **Kein automatischer Sync-Cron** — `syncIntervalMinutes` ist in schema definiert (Default 60min), aber kein BullMQ-Job oder Cron nutzt es. Muss in einer späteren Phase implementiert werden.
+
+---
+
+## Compliance-Audit (vollständiger Prinzipien-Check)
+
+**Datum:** 2025-03-04 (zweite Review-Runde)
+
+### ✅ Eingehaltene Prinzipien
+
+| Prinzip | Status | Details |
+|---------|--------|---------|
+| `getEnv()` statt `process.env` | ✅ | `process.env` kommt nur noch in `lib/env.ts` vor |
+| Schema-Konsistenz | ✅ | Kein `users.tenantId` oder `users.role` mehr im Code |
+| YAML Single Source of Truth | ✅ | Alle 11 Datenquellen fließen ein (meta, business, team, workflows, tasks, agents, token_usage, projects, integrations, crm_summary, context) |
+| Credentials nie in Errors/Logs/Responses | ✅ | GET /integrations gibt nie `credentialsEncrypted/Iv/Tag` zurück |
+| Tenant-Isolation | ✅ | Alle Endpoints prüfen `tenantId` (nach Widget-Fix) |
+| Seed-RBAC konsistent | ✅ | Alle 31 Permissions definiert, korrekt auf 6 Rollen verteilt |
+
+### 🔴 Kritische Fixes (Compliance-Audit) — ALLE ANGEWENDET ✅
+
+#### 14. ~~`projects.ts` — RBAC fehlte auf ALLEN Endpoints~~ → **GEFIXT**
+- `rbac('project', 'create/read/delete')` und `rbac('deployment', 'create/read')` auf alle Endpoints
+
+#### 15. ~~`sandbox.ts` — RBAC fehlte + Widget-Endpoint ohne Tenant-Check~~ → **GEFIXT**
+- RBAC auf alle 6 Endpoints (`sandbox:create/read/manage`), Widget-Endpoint mit `innerJoin` Tenant-Check
+
+#### 16. ~~`gdpr.ts` — RBAC fehlte auf ALLEN Endpoints~~ → **GEFIXT**
+- `rbac('gdpr', 'read')` auf Export + Audit-Log, `rbac('gdpr', 'manage')` auf Delete
+
+#### 17. ~~`tenants.ts` — RBAC fehlte auf GET/PATCH/DELETE/members~~ → **GEFIXT**
+- `rbac('tenant', 'read/update/delete')` und `rbac('team', 'read')` auf Members-Endpoint
+
+#### 18. ~~`onboarding.ts` — RBAC nur auf 1 von 5 Endpoints~~ → **GEFIXT**
+- `rbac('agent', 'manage')` auf POST-Endpoints, `rbac('agent', 'read')` auf alle GET-Endpoints
+
+#### 19. ~~`gdpr.ts` — DSGVO-Löschung vergaß `roles` + `rolePermissions`~~ → **GEFIXT**
+- `rolePermissions` (via `inArray`) und `roles` (via `tenantId`) werden jetzt mitgelöscht
+
+### 🟡 Mittlere Fixes (Compliance-Audit) — ALLE ANGEWENDET ✅
+
+#### 20. ~~`tenants.ts` — Audit-Log für Tenant-Löschung fehlte~~ → **GEFIXT**
+- `audit_log` Eintrag mit `tenant.deleted` Action nach Soft-Delete
+
+#### 21. ~~`projects.ts` — Audit-Log für Projekt-Löschung fehlte~~ → **GEFIXT**
+- `audit_log` Eintrag mit `project.deleted` Action nach Hard-Delete
+
+### Offene Hinweise (Compliance-Audit)
+
+8. **`supportSessions` fehlen im YAML** — Wenn ein BASIS-Mitarbeiter gerade Zugriff hat, sollten Agenten das wissen. Feature-Wunsch für spätere Phase.
+
+9. **Audit-Logging unvollständig** — `roles.ts` (Rollen-Änderungen) und `sandbox.ts` (Publish) loggen nicht ins Audit-Log. Für MVP akzeptabel, langfristig nachrüsten.

@@ -1,16 +1,17 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, auditLog, tenantMembers, tokenUsage, onboardingTasks, onboardingProfiles, supportSessions, integrations, integrationSyncLog } from '../db/schema.js';
-import { eq, and, isNull } from 'drizzle-orm';
+import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, auditLog, tenantMembers, tokenUsage, onboardingTasks, onboardingProfiles, supportSessions, integrations, integrationSyncLog, roles, rolePermissions } from '../db/schema.js';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
+import { rbac } from '../middleware/rbac.js';
 
 const gdprRouter = new Hono();
 
 gdprRouter.use('/*', authMiddleware, tenantMiddleware);
 
 // POST /gdpr/export — Complete data export (DSGVO Art. 20)
-gdprRouter.post('/export', async (c) => {
+gdprRouter.post('/export', rbac('gdpr', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
 
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
@@ -34,7 +35,7 @@ gdprRouter.post('/export', async (c) => {
 });
 
 // POST /gdpr/delete — Complete data deletion (DSGVO Art. 17)
-gdprRouter.post('/delete', async (c) => {
+gdprRouter.post('/delete', rbac('gdpr', 'manage'), async (c) => {
   const tenantId = c.get('tenantId');
   const user = c.get('user');
 
@@ -76,13 +77,21 @@ gdprRouter.post('/delete', async (c) => {
   // Remove tenant memberships (users themselves may belong to other tenants)
   await db.delete(tenantMembers).where(eq(tenantMembers.tenantId, tenantId));
 
+  // Delete tenant-specific roles + their permission mappings
+  const tenantRoles = await db.select({ id: roles.id }).from(roles).where(eq(roles.tenantId, tenantId));
+  if (tenantRoles.length > 0) {
+    const roleIds = tenantRoles.map((r) => r.id);
+    await db.delete(rolePermissions).where(inArray(rolePermissions.roleId, roleIds));
+    await db.delete(roles).where(eq(roles.tenantId, tenantId));
+  }
+
   await db.update(tenants).set({ deletedAt: new Date(), name: '[GELÖSCHT]', slug: `deleted-${tenantId.slice(0, 8)}` }).where(eq(tenants.id, tenantId));
 
   return c.json({ ok: true, message: 'Alle Daten wurden gelöscht (DSGVO Art. 17).' });
 });
 
 // GET /gdpr/audit-log — Access log
-gdprRouter.get('/audit-log', async (c) => {
+gdprRouter.get('/audit-log', rbac('gdpr', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
 
   const logs = await db

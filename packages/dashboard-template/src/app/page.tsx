@@ -2,181 +2,298 @@
 
 import { useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
-import { KPICard } from '@/components/KPICard';
+import { AgentDesk } from '@/components/AgentDesk';
 import { AgentChat } from '@/components/AgentChat';
-import { TokenMeter } from '@/components/TokenMeter';
 import { useTheme } from '@/components/ThemeProvider';
-import { SupportBannerDemo } from '@/components/SupportBanner';
+import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 
-const KPI_DATA = [
-  { label: 'UMSATZ MÄRZ', value: '€12.450', change: '+8.3%', positive: true },
-  { label: 'GÄSTE HEUTE', value: '47', change: '+12%', positive: true },
-  { label: 'RESERVIERUNGEN', value: '23', change: '−3%', positive: false },
-  { label: 'AUSLASTUNG', value: '78%', change: '+5%', positive: true },
-];
+// ─── Derive desk data from real API tasks ────────────────────────────────────
+type Priority = 'high' | 'medium' | 'low';
+type DeskStatus = 'working' | 'idle' | 'waiting';
 
-const ACTIVITIES = [
-  { agent: 'Clara', action: 'Rechnung #2026-0032 erstellt', time: 'VOR 5 MIN' },
-  { agent: 'Marie', action: 'E-Mail-Entwurf an Gast Müller', time: 'VOR 12 MIN' },
-  { agent: 'Tom', action: 'Monatsbericht Februar exportiert', time: 'VOR 1 STD' },
-  { agent: 'Marco', action: 'Social-Media-Post Wochenmenü', time: 'VOR 2 STD' },
-  { agent: 'Nico', action: 'Widget „Tagesreservierungen" gebaut', time: 'VOR 3 STD' },
-  { agent: 'Alex', action: 'Support-Anfrage #47 beantwortet', time: 'VOR 4 STD' },
-];
+const PRIORITY_MAP: Record<string, Priority> = {
+  high: 'high', urgent: 'high', medium: 'medium', normal: 'medium', low: 'low',
+};
 
-const TOKEN_AGENTS = [
-  { name: 'Lena', tokens: 4200 },
-  { name: 'Clara', tokens: 3100 },
-  { name: 'Marie', tokens: 2800 },
-  { name: 'Marco', tokens: 1900 },
-  { name: 'Tom', tokens: 1400 },
-  { name: 'Alex', tokens: 800 },
-  { name: 'Nico', tokens: 600 },
-];
+function taskToPriority(p: string): Priority {
+  return PRIORITY_MAP[p?.toLowerCase()] ?? 'medium';
+}
+
+// Map agent display name → type key
+function agentNameToKey(name: string): string {
+  return name.toLowerCase().replace(/\s.*/, '');
+}
 
 export default function DashboardPage() {
   const { theme, toggle } = useTheme();
-  const [buildHov, setBuildHov] = useState(false);
+  const { tenant, agents, tokens, loading, error } = useDashboardData();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatAgent, setChatAgent] = useState<string | null>(null);
   const [themeHov, setThemeHov] = useState(false);
+  const [buildHov, setBuildHov] = useState(false);
+
+  const openChat = (agentName: string) => {
+    setChatAgent(agentName);
+    setChatOpen(true);
+  };
+
+  // ─── Build agent desks from real API tasks ──────────────────────────────
+  const enabledAgentTypes = tenant?.agents?.enabled ?? [];
+  const tasks = tenant?.tasks ?? [];
+
+  const DESK_ORDER = ['marie', 'tom', 'clara', 'marco', 'alex', 'nico'];
+
+  const agentDesks = DESK_ORDER
+    .filter((key) => {
+      const meta = AGENT_META[key];
+      return enabledAgentTypes.length === 0 ||
+        enabledAgentTypes.some((n) => n.toLowerCase().includes(meta?.role?.toLowerCase() ?? key) || n.toLowerCase().includes(key));
+    })
+    .map((key) => {
+      const meta = AGENT_META[key];
+      const agentTasks = tasks.filter((t) => agentNameToKey(t.assigned_agent) === key);
+      const pendingTasks = agentTasks.filter((t) => t.status === 'pending' || t.status === 'in_progress');
+      const hasPending = pendingTasks.length > 0;
+      const status: DeskStatus = hasPending ? 'working' : 'idle';
+      const postIts = agentTasks.slice(0, 3).map((t) => ({
+        text: t.title.length > 22 ? t.title.slice(0, 22) + '…' : t.title,
+        priority: taskToPriority(t.priority),
+      }));
+      // Matching agent info from API list
+      const agentInfo = agents.find((a) => a.type === key);
+      return {
+        name: agentInfo?.name ?? meta?.role ?? key,
+        role: meta?.role ?? key,
+        initial: meta?.initial ?? key[0].toUpperCase(),
+        color: meta?.color ?? '#888',
+        status,
+        postIts,
+        lastAction: agentTasks[0] ? agentTasks[0].title : undefined,
+      };
+    });
+
+  // ─── Lena's briefing from real tasks ───────────────────────────────────
+  const agentSummaries = Object.entries(tenant?.agents?.task_summary ?? {}).slice(0, 4);
+
+  // ─── Status bar ────────────────────────────────────────────────────────
+  const totalTasks = tasks.length;
+  const doneTasks = tasks.filter((t) => t.status === 'done' || t.status === 'completed').length;
+  const enabledCount = enabledAgentTypes.length || agents.filter((a) => a.enabled).length;
+  const totalTokensFmt = tokens
+    ? tokens.total_tokens >= 1000
+      ? `${(tokens.total_tokens / 1000).toFixed(1)}k`
+      : String(tokens.total_tokens)
+    : '—';
+
+  const today = new Date().toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1 }}>
-      <SupportBannerDemo />
-      <Sidebar />
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <Sidebar tenantName={tenant?.meta?.name} plan={tenant?.meta?.plan} />
 
-      <main style={{ marginLeft: 260, flex: 1, padding: '40px 40px 80px' }}>
-        {/* Header */}
-        <header style={{
-          padding: '32px 0 40px',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border)', marginBottom: 2,
+      <main style={{ marginLeft: 260, flex: 1, padding: '28px 40px 120px' }}>
+
+        {/* ═══ Top Bar: Tenant + Buttons ═══ */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 24,
+          paddingBottom: 20,
+          borderBottom: '1px solid var(--border)',
         }}>
           <div>
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
               letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--accent)',
-              display: 'block', marginBottom: 12,
-            }}>DASHBOARD</span>
+              marginBottom: 4,
+            }}>DEIN BÜRO</p>
             <h1 style={{
-              fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 900,
-              lineHeight: 0.95, letterSpacing: '-0.03em', color: 'var(--text)',
-            }}>Willkommen zurück.</h1>
-            <p style={{ fontSize: 14, color: 'var(--text-dim)', marginTop: 8 }}>
-              Gasthof Sonnenhof — Dienstag, 4. März 2026
-            </p>
+              fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em',
+              color: 'var(--text)', lineHeight: 1,
+            }}>{tenant?.meta?.name ?? 'Lädt…'}</h1>
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              color: 'var(--text-muted)', marginTop: 6, letterSpacing: '0.05em',
+            }}>{today}</p>
           </div>
           <div style={{ display: 'flex', gap: 2 }}>
-            {/* Theme Toggle */}
             <button
               onClick={toggle}
               onMouseEnter={() => setThemeHov(true)}
               onMouseLeave={() => setThemeHov(false)}
               style={{
                 background: themeHov ? 'var(--surface-2)' : 'var(--surface)',
-                border: '1px solid var(--border)',
-                color: 'var(--text)',
-                padding: '12px 20px',
-                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
-                letterSpacing: '0.1em', textTransform: 'uppercase',
-                cursor: 'pointer', transition: 'all 0.15s',
+                border: '1px solid var(--border)', color: 'var(--text)',
+                padding: '10px 18px', fontFamily: 'var(--font-mono)',
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+                textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.15s',
               }}
             >{theme === 'dark' ? '☀ LIGHT' : '● DARK'}</button>
-            {/* Build Mode */}
             <button
               onMouseEnter={() => setBuildHov(true)}
               onMouseLeave={() => setBuildHov(false)}
               style={{
                 background: buildHov ? 'var(--text)' : 'var(--accent)',
-                color: 'var(--on-accent)',
-                border: 'none', padding: '12px 28px',
-                fontWeight: 800, fontSize: 13,
+                color: 'var(--on-accent)', border: 'none',
+                padding: '10px 22px', fontWeight: 800, fontSize: 11,
                 letterSpacing: '0.08em', textTransform: 'uppercase',
                 cursor: 'pointer', transition: 'all 0.15s',
-                display: 'flex', alignItems: 'center', gap: 10,
+                display: 'flex', alignItems: 'center', gap: 8,
               }}
             >
-              <span style={{ width: 6, height: 6, background: 'var(--on-accent)', animation: 'pulse 1.5s infinite' }} />
+              <span style={{ width: 5, height: 5, background: 'var(--on-accent)', animation: 'pulse 1.5s infinite' }} />
               BUILD MODE
             </button>
           </div>
-        </header>
+        </div>
 
-        {/* KPI Grid — 2px gaps */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, marginBottom: 2 }}>
-          {KPI_DATA.map((kpi) => (
-            <KPICard key={kpi.label} {...kpi} />
+        {/* ═══ Lena's Briefing ═══ */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
+          <div style={{
+            width: 44, height: 44, background: 'var(--accent)', color: 'var(--on-accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18, fontWeight: 900, flexShrink: 0,
+          }}>L</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>Lena</span>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600,
+                letterSpacing: '0.15em', color: 'var(--accent)',
+              }}>ORCHESTRATORIN</span>
+            </div>
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              padding: '14px 18px', fontSize: 13, lineHeight: 1.65, color: 'var(--text)',
+            }}>
+              {loading && <p style={{ color: 'var(--text-muted)' }}>Lade Daten…</p>}
+              {error && <p style={{ color: 'var(--negative)' }}>API nicht erreichbar — bitte Backend starten.</p>}
+              {!loading && !error && (
+                <>
+                  <p style={{ marginBottom: 10 }}>Guten Morgen! Hier ist dein Tages-Update:</p>
+                  {agentSummaries.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {agentSummaries.map(([agentName, info]) => {
+                        const key = agentNameToKey(agentName);
+                        const meta = AGENT_META[key] ?? { color: '#888' };
+                        return (
+                          <BriefingItem
+                            key={agentName}
+                            agent={agentName}
+                            color={meta.color}
+                            text={`${info.count} Aufgabe${info.count !== 1 ? 'n' : ''}: ${info.tasks.slice(0, 2).join(', ')}${info.tasks.length > 2 ? ' …' : ''}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)' }}>Noch keine Aufgaben zugewiesen — starte das Onboarding.</p>
+                  )}
+                  <p
+                    onClick={() => openChat('Lena')}
+                    style={{ marginTop: 10, fontWeight: 700, color: 'var(--accent)', cursor: 'pointer' }}
+                  >→ Schreib mir wenn du etwas brauchst</p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ═══ Status Bar ═══ */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, marginBottom: 20 }}>
+          {[
+            { label: 'AGENTEN ONLINE', value: enabledCount ? `${enabledCount}/7` : '—' },
+            { label: 'AUFGABEN GESAMT', value: String(totalTasks || '—') },
+            { label: 'ERLEDIGT', value: String(doneTasks || '—') },
+            { label: 'TOKENS MONAT', value: totalTokensFmt },
+          ].map((s) => (
+            <div key={s.label} style={{
+              background: 'var(--surface)', padding: '10px 16px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600,
+                letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)',
+              }}>{s.label}</span>
+              <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text)' }}>
+                {s.value}
+              </span>
+            </div>
           ))}
         </div>
 
-        {/* Main Grid: Chat + Activity + Token */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 2 }}>
-          {/* Left: Chat */}
-          <AgentChat />
-
-          {/* Right: Activity + Token stacked */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Activity Feed */}
-            <div style={{ background: 'var(--surface)', flex: 1 }}>
-              <div style={{
-                padding: '16px 24px', borderBottom: '1px solid var(--border)',
-              }}>
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                  letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--accent)',
-                }}>LETZTE AKTIVITÄTEN</span>
-              </div>
-              <div>
-                {ACTIVITIES.map((a, i) => (
-                  <ActivityRow key={i} {...a} />
-                ))}
-              </div>
-            </div>
-
-            {/* Token Meter */}
-            <TokenMeter
-              used={14800}
-              limit={20000}
-              agents={TOKEN_AGENTS}
-              period="MÄRZ 2026"
-            />
-          </div>
+        {/* ═══ Agent Desks ═══ */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+        }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+            letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--accent)',
+          }}>DEIN TEAM</span>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)',
+            letterSpacing: '0.08em',
+          }}>— KLICK ZUM CHATTEN</span>
         </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, marginBottom: 2 }}>
+          {agentDesks.map((desk) => (
+            <AgentDesk key={desk.name} {...desk} onClick={() => openChat(desk.name)} />
+          ))}
+          {loading && Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              height: 160, opacity: 0.4,
+            }} />
+          ))}
+        </div>
+
+        {/* ═══ Chat Panel ═══ */}
+        {chatOpen && (
+          <div style={{
+            position: 'fixed', bottom: 0, left: 260, right: 0,
+            height: '50vh', background: 'var(--bg)',
+            borderTop: '2px solid var(--accent)', zIndex: 50,
+            display: 'flex', flexDirection: 'column',
+          }}>
+            <div style={{
+              padding: '10px 24px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <div style={{ width: 6, height: 6, background: 'var(--positive)', animation: 'pulse 1.5s infinite' }} />
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--accent)',
+              }}>{chatAgent ? `CHAT MIT ${chatAgent.toUpperCase()}` : 'DEIN TEAM'}</span>
+              <button
+                onClick={() => setChatOpen(false)}
+                style={{
+                  marginLeft: 'auto', background: 'transparent',
+                  border: '1px solid var(--border)', color: 'var(--text-muted)',
+                  padding: '4px 12px', fontFamily: 'var(--font-mono)',
+                  fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                }}
+              >SCHLIESSEN ✕</button>
+            </div>
+            <div style={{ flex: 1 }}><AgentChat /></div>
+          </div>
+        )}
+
       </main>
     </div>
   );
 }
 
-function ActivityRow({ agent, action, time }: { agent: string; action: string; time: string }) {
-  const [hov, setHov] = useState(false);
+function BriefingItem({ agent, color, text }: { agent: string; color: string; text: string }) {
   return (
-    <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '10px 24px',
-        borderBottom: '1px solid var(--border)',
-        background: hov ? 'var(--surface-2)' : 'transparent',
-        transition: 'background 0.15s',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{
-        width: 24, height: 24, flexShrink: 0,
-        background: hov ? 'var(--accent)' : 'var(--surface-2)',
-        color: hov ? 'var(--on-accent)' : 'var(--accent)',
+        width: 20, height: 20, flexShrink: 0, background: color, color: '#080808',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 10, fontWeight: 800, transition: 'all 0.15s',
+        fontSize: 9, fontWeight: 800,
       }}>{agent[0]}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <span style={{ fontWeight: 700, color: hov ? 'var(--accent)' : 'var(--text)' }}>{agent}</span>
-          {' '}{action}
-        </p>
-      </div>
-      <span style={{
-        fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600,
-        letterSpacing: '0.1em', color: 'var(--text-muted)', whiteSpace: 'nowrap',
-      }}>{time}</span>
+      <span style={{ fontSize: 12 }}>
+        <strong style={{ color }}>{agent}</strong> {text}
+      </span>
     </div>
   );
 }

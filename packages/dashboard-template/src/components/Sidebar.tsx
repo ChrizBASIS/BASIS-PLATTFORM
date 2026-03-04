@@ -2,6 +2,11 @@
 
 import { useState } from 'react';
 
+interface SidebarProps {
+  tenantName?: string;
+  plan?: string;
+}
+
 interface NavItem {
   label: string;
   href: string;
@@ -24,7 +29,7 @@ const bottomItems: NavItem[] = [
   { label: 'Einstellungen', href: '/settings' },
 ];
 
-export function Sidebar() {
+export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (
@@ -123,13 +128,13 @@ export function Sidebar() {
           background: 'var(--accent)', color: 'var(--on-accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 800,
-        }}>GS</div>
+        }}>{tenantName ? tenantName.slice(0, 2).toUpperCase() : 'BA'}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            Gasthof Sonnenhof
+            {tenantName ?? 'BASIS'}
           </p>
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--accent)' }}>
-            PRO PLAN
+            {plan ? `${plan.toUpperCase()} PLAN` : 'PLAN'}
           </p>
         </div>
       </div>

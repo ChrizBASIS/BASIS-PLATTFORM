@@ -1,17 +1,18 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { projects, deployments } from '../db/schema.js';
+import { projects, deployments, auditLog } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
+import { rbac } from '../middleware/rbac.js';
 
 const projectsRouter = new Hono();
 
 projectsRouter.use('/*', authMiddleware, tenantMiddleware);
 
 // POST /projects — Create new project
-projectsRouter.post('/', async (c) => {
+projectsRouter.post('/', rbac('project', 'create'), async (c) => {
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
 
@@ -53,7 +54,7 @@ projectsRouter.post('/', async (c) => {
 });
 
 // GET /projects/:id — Get project details
-projectsRouter.get('/:id', async (c) => {
+projectsRouter.get('/:id', rbac('project', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -71,7 +72,7 @@ projectsRouter.get('/:id', async (c) => {
 });
 
 // POST /projects/:id/deploy — Trigger deployment
-projectsRouter.post('/:id/deploy', async (c) => {
+projectsRouter.post('/:id/deploy', rbac('deployment', 'create'), async (c) => {
   const tenantId = c.get('tenantId');
   const user = c.get('user');
   const id = c.req.param('id');
@@ -102,7 +103,7 @@ projectsRouter.post('/:id/deploy', async (c) => {
 });
 
 // GET /projects/:id/deployments — Deployment history
-projectsRouter.get('/:id/deployments', async (c) => {
+projectsRouter.get('/:id/deployments', rbac('deployment', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -127,7 +128,7 @@ projectsRouter.get('/:id/deployments', async (c) => {
 });
 
 // GET /projects/:id/status — Current status
-projectsRouter.get('/:id/status', async (c) => {
+projectsRouter.get('/:id/status', rbac('project', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -148,7 +149,7 @@ projectsRouter.get('/:id/status', async (c) => {
 });
 
 // DELETE /projects/:id — Delete project
-projectsRouter.delete('/:id', async (c) => {
+projectsRouter.delete('/:id', rbac('project', 'delete'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -160,6 +161,15 @@ projectsRouter.delete('/:id', async (c) => {
   if (deleted.length === 0) {
     return c.json({ error: 'Project not found' }, 404);
   }
+
+  const user = c.get('user');
+  await db.insert(auditLog).values({
+    tenantId,
+    userId: user.sub,
+    action: 'project.deleted',
+    resource: 'project',
+    details: { projectId: id, projectName: deleted[0].name },
+  });
 
   // TODO: Delete Coolify container
 

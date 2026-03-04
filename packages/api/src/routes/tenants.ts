@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { tenants, users, tenantMembers, roles } from '../db/schema.js';
+import { tenants, users, tenantMembers, roles, auditLog } from '../db/schema.js';
 import { eq, and, isNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
+import { rbac } from '../middleware/rbac.js';
 
 const tenantsRouter = new Hono();
 
@@ -59,7 +60,7 @@ tenantsRouter.post('/', async (c) => {
 });
 
 // GET /tenants/:id — Get tenant details
-tenantsRouter.get('/:id', tenantMiddleware, async (c) => {
+tenantsRouter.get('/:id', tenantMiddleware, rbac('tenant', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -81,7 +82,7 @@ tenantsRouter.get('/:id', tenantMiddleware, async (c) => {
 });
 
 // PATCH /tenants/:id — Update tenant settings
-tenantsRouter.patch('/:id', tenantMiddleware, async (c) => {
+tenantsRouter.patch('/:id', tenantMiddleware, rbac('tenant', 'update'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -102,7 +103,7 @@ tenantsRouter.patch('/:id', tenantMiddleware, async (c) => {
 });
 
 // DELETE /tenants/:id — Soft-delete tenant (DSGVO Art. 17)
-tenantsRouter.delete('/:id', tenantMiddleware, async (c) => {
+tenantsRouter.delete('/:id', tenantMiddleware, rbac('tenant', 'delete'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
   const user = c.get('user');
@@ -118,11 +119,19 @@ tenantsRouter.delete('/:id', tenantMiddleware, async (c) => {
 
   await db.update(tenants).set({ deletedAt: new Date() }).where(eq(tenants.id, id));
 
+  await db.insert(auditLog).values({
+    tenantId: id,
+    userId: user.sub,
+    action: 'tenant.deleted',
+    resource: 'tenant',
+    details: { tenantName: tenant.name },
+  });
+
   return c.json({ ok: true, message: 'Tenant marked for deletion' });
 });
 
 // GET /tenants/:id/members — List team members
-tenantsRouter.get('/:id/members', tenantMiddleware, async (c) => {
+tenantsRouter.get('/:id/members', tenantMiddleware, rbac('team', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 

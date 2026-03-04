@@ -5,13 +5,14 @@ import { sandboxSessions, projects } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
+import { rbac } from '../middleware/rbac.js';
 
 const sandboxRouter = new Hono();
 
 sandboxRouter.use('/*', authMiddleware, tenantMiddleware);
 
 // POST /sandbox/session — Start new sandbox session
-sandboxRouter.post('/session', async (c) => {
+sandboxRouter.post('/session', rbac('sandbox', 'create'), async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
 
@@ -40,7 +41,7 @@ sandboxRouter.post('/session', async (c) => {
 });
 
 // GET /sandbox/session/:id — Session status + preview URL
-sandboxRouter.get('/session/:id', async (c) => {
+sandboxRouter.get('/session/:id', rbac('sandbox', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -59,8 +60,22 @@ sandboxRouter.get('/session/:id', async (c) => {
 });
 
 // POST /sandbox/session/:id/widget — Create/modify widget in sandbox (via Nico)
-sandboxRouter.post('/session/:id/widget', async (c) => {
+sandboxRouter.post('/session/:id/widget', rbac('sandbox', 'create'), async (c) => {
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
+
+  // Verify session belongs to tenant
+  const [session] = await db
+    .select({ id: sandboxSessions.id })
+    .from(sandboxSessions)
+    .innerJoin(projects, eq(sandboxSessions.projectId, projects.id))
+    .where(and(eq(sandboxSessions.id, id), eq(projects.tenantId, tenantId)))
+    .limit(1);
+
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404);
+  }
+
   const body = await c.req.json();
 
   const input = z
@@ -80,7 +95,7 @@ sandboxRouter.post('/session/:id/widget', async (c) => {
 });
 
 // GET /sandbox/session/:id/preview — Get preview URL
-sandboxRouter.get('/session/:id/preview', async (c) => {
+sandboxRouter.get('/session/:id/preview', rbac('sandbox', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -102,7 +117,7 @@ sandboxRouter.get('/session/:id/preview', async (c) => {
 });
 
 // POST /sandbox/session/:id/publish — Publish sandbox changes to live
-sandboxRouter.post('/session/:id/publish', async (c) => {
+sandboxRouter.post('/session/:id/publish', rbac('sandbox', 'manage'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -127,7 +142,7 @@ sandboxRouter.post('/session/:id/publish', async (c) => {
 });
 
 // POST /sandbox/session/:id/revert — Discard all changes
-sandboxRouter.post('/session/:id/revert', async (c) => {
+sandboxRouter.post('/session/:id/revert', rbac('sandbox', 'manage'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 
@@ -154,7 +169,7 @@ sandboxRouter.post('/session/:id/revert', async (c) => {
 });
 
 // GET /sandbox/session/:id/diff — Show changes vs live
-sandboxRouter.get('/session/:id/diff', async (c) => {
+sandboxRouter.get('/session/:id/diff', rbac('sandbox', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
 

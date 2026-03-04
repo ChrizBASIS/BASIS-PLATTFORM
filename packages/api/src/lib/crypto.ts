@@ -9,13 +9,14 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { getEnv } from './env.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
 function getKey(): Buffer {
-  const key = process.env.CRM_ENCRYPTION_KEY;
+  const key = getEnv().CRM_ENCRYPTION_KEY;
   if (!key || key.length < 32) {
     throw new Error('CRM_ENCRYPTION_KEY must be set (min 32 chars). Generate with: openssl rand -hex 32');
   }

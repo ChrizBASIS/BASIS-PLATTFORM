@@ -78,7 +78,7 @@ const profileSchema = z.object({
   })).optional(),
 });
 
-app.post('/profile', authMiddleware, tenantMiddleware, async (c) => {
+app.post('/profile', authMiddleware, tenantMiddleware, rbac('agent', 'manage'), async (c) => {
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
   const parsed = profileSchema.safeParse(body);
@@ -130,7 +130,7 @@ const analyzeSchema = z.object({
   })),
 });
 
-app.post('/analyze', authMiddleware, tenantMiddleware, async (c) => {
+app.post('/analyze', authMiddleware, tenantMiddleware, rbac('agent', 'manage'), async (c) => {
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
   const parsed = analyzeSchema.safeParse(body);
@@ -239,7 +239,7 @@ app.post('/analyze', authMiddleware, tenantMiddleware, async (c) => {
 });
 
 // ─── GET /onboarding/profile — Profil + Tasks abrufen ────────────────────────
-app.get('/profile', authMiddleware, tenantMiddleware, async (c) => {
+app.get('/profile', authMiddleware, tenantMiddleware, rbac('agent', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
 
   const [profile] = await db
@@ -265,7 +265,7 @@ app.get('/profile', authMiddleware, tenantMiddleware, async (c) => {
 });
 
 // ─── GET /onboarding/tasks/:agent — Tasks pro Agent ─────────────────────────
-app.get('/tasks/:agent', authMiddleware, tenantMiddleware, async (c) => {
+app.get('/tasks/:agent', authMiddleware, tenantMiddleware, rbac('agent', 'read'), async (c) => {
   const tenantId = c.get('tenantId');
   const agent = c.req.param('agent');
 
