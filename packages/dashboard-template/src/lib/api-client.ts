@@ -3,11 +3,12 @@
  * Reads API_URL from env, attaches Bearer token from localStorage.
  */
 
+import { getAccessToken, refreshAccessToken, clearTokens } from './auth';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('basis_access_token');
+export function getToken(): string | null {
+  return getAccessToken();
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -20,6 +21,25 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
+
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const newToken = getAccessToken();
+      const retry = await fetch(`${API_BASE}/api/v1${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(newToken ? { Authorization: `Bearer ${newToken}` } : {}),
+          ...options?.headers,
+        },
+      });
+      if (retry.ok) return retry.json() as Promise<T>;
+    }
+    clearTokens();
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    throw new Error('Nicht angemeldet');
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

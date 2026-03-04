@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { logout } from '@/lib/auth';
 
 interface SidebarProps {
   tenantName?: string;
@@ -137,6 +138,21 @@ export function Sidebar({ tenantName, plan }: SidebarProps = {}) {
             {plan ? `${plan.toUpperCase()} PLAN` : 'PLAN'}
           </p>
         </div>
+        <button
+          onClick={() => logout(`${window.location.origin}/login`)}
+          onMouseEnter={() => setHovered('__logout__')}
+          onMouseLeave={() => setHovered(null)}
+          title="Abmelden"
+          style={{
+            width: 28, height: 28, flexShrink: 0,
+            background: hovered === '__logout__' ? 'var(--negative)' : 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: hovered === '__logout__' ? '#fff' : 'var(--text-muted)',
+            cursor: 'pointer', fontSize: 12, fontWeight: 700,
+            transition: 'all 0.15s',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >↩</button>
       </div>
     </aside>
   );
