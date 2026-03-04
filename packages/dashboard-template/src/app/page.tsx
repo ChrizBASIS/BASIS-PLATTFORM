@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { AgentDesk } from '@/components/AgentDesk';
 import { AgentChat } from '@/components/AgentChat';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { TokenMeter } from '@/components/TokenMeter';
 import { useTheme } from '@/components/ThemeProvider';
+import { useToast } from '@/components/Toast';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 
 // ─── Derive desk data from real API tasks ────────────────────────────────────
@@ -27,7 +29,9 @@ function agentNameToKey(name: string): string {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { theme, toggle } = useTheme();
+  const { toast } = useToast();
   const { tenant, agents, tokens, loading, error, refetch } = useDashboardData();
   const [chatOpen, setChatOpen] = useState(false);
   const [chatAgent, setChatAgent] = useState<string | null>(null);
@@ -35,6 +39,11 @@ export default function DashboardPage() {
   const [buildHov, setBuildHov] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingHov, setOnboardingHov] = useState(false);
+
+  // Notify on API error
+  useEffect(() => {
+    if (error) toast('API nicht erreichbar — bitte Backend starten', 'error');
+  }, [error]);
 
   // Auto-open wizard on first visit when no tasks exist
   useEffect(() => {
@@ -152,6 +161,7 @@ export default function DashboardPage() {
               }}
             >⚙ ONBOARDING</button>
             <button
+              onClick={() => router.push('/sandbox')}
               onMouseEnter={() => setBuildHov(true)}
               onMouseLeave={() => setBuildHov(false)}
               style={{
@@ -189,7 +199,7 @@ export default function DashboardPage() {
               padding: '14px 18px', fontSize: 13, lineHeight: 1.65, color: 'var(--text)',
             }}>
               {loading && <p style={{ color: 'var(--text-muted)' }}>Lade Daten…</p>}
-              {error && <p style={{ color: 'var(--negative)' }}>API nicht erreichbar — bitte Backend starten.</p>}
+              {error && <p style={{ color: 'var(--negative)' }}>API nicht erreichbar — bitte Backend starten. ({error})</p>}
               {!loading && !error && (
                 <>
                   <p style={{ marginBottom: 10 }}>Guten Morgen! Hier ist dein Tages-Update:</p>
