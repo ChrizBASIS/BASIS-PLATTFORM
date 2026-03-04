@@ -274,7 +274,7 @@ export default function DashboardPage() {
                 }}
               >SCHLIESSEN ✕</button>
             </div>
-            <div style={{ flex: 1 }}><AgentChat /></div>
+            <div style={{ flex: 1 }}><AgentChat agentName={chatAgent ?? undefined} /></div>
           </div>
         )}
 

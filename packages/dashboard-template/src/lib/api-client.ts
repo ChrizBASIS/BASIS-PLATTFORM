@@ -103,6 +103,100 @@ export async function fetchTokenSummary(): Promise<TokenSummary | null> {
   }
 }
 
+// ─── Agent Name → API Type mapping ───────────────────────────────────────────
+export const AGENT_TYPE_MAP: Record<string, string> = {
+  lena:   'orchestrator',
+  marie:  'sekretariat',
+  tom:    'backoffice',
+  clara:  'finance',
+  marco:  'marketing',
+  alex:   'support',
+  nico:   'builder',
+  // fallback by role name
+  sekretariat:  'sekretariat',
+  backoffice:   'backoffice',
+  finance:      'finance',
+  marketing:    'marketing',
+  support:      'support',
+  builder:      'builder',
+  orchestrator: 'orchestrator',
+};
+
+// ─── SSE stream types ─────────────────────────────────────────────────────────
+export type StreamEvent =
+  | { type: 'agent';  agent: string; agentName: string }
+  | { type: 'delta';  content: string }
+  | { type: 'done';   conversationId: string }
+  | { type: 'error';  message: string };
+
+/**
+ * Streams chat via SSE. Yields parsed StreamEvents.
+ * Routes through orchestrator which auto-selects the right agent.
+ */
+export async function* streamChat(
+  message: string,
+  conversationId?: string,
+): AsyncGenerator<StreamEvent> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/agents/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message, ...(conversationId ? { conversationId } : {}) }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`Chat error ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          yield event;
+        } catch {
+          // ignore malformed
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Direct (non-streaming) chat to a specific agent type.
+ */
+export interface DirectChatResponse {
+  reply: string;
+  agent: string;
+  agentName: string;
+  conversationId: string;
+}
+
+export async function sendDirectChat(
+  agentType: string,
+  message: string,
+  conversationId?: string,
+): Promise<DirectChatResponse> {
+  return apiFetch<DirectChatResponse>(`/agents/${agentType}/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ message, ...(conversationId ? { conversationId } : {}) }),
+  });
+}
+
 // ─── Onboarding Tasks ────────────────────────────────────────────────────────
 export interface OnboardingTask {
   id: string; title: string; description: string | null;
