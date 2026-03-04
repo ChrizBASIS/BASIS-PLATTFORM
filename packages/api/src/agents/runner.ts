@@ -209,7 +209,10 @@ export async function runAgentStream(
     currentAgent = 'orchestrator';
   }
 
-  const agentDef = getAgent(currentAgent)!;
+  const agentDef = getAgent(currentAgent);
+  if (!agentDef) {
+    throw new Error(`Agent nicht gefunden: ${currentAgent}`);
+  }
   const messages = await buildMessages(currentAgent, ctx.tenantId, history, userMessage);
 
   // Pre-save conversation with user message
@@ -230,11 +233,14 @@ export async function runAgentStream(
     temperature: 0.7,
     max_tokens: 1500,
     stream: true,
+    stream_options: { include_usage: true },
   });
 
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      let inputTokens = 0;
+      let outputTokens = 0;
 
       // Send agent info first
       controller.enqueue(encoder.encode(
@@ -250,6 +256,11 @@ export async function runAgentStream(
               `data: ${JSON.stringify({ type: 'delta', content: delta })}\n\n`,
             ));
           }
+          // Capture usage from final chunk
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens ?? 0;
+            outputTokens = chunk.usage.completion_tokens ?? 0;
+          }
         }
 
         // Save complete conversation
@@ -264,6 +275,19 @@ export async function runAgentStream(
           },
         ];
         await saveConversation(ctx.tenantId, ctx.userId, currentAgent, finalHistory, savedId);
+
+        // Track token usage
+        if (inputTokens > 0 || outputTokens > 0) {
+          await db.insert(tokenUsage).values({
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            agentType: currentAgent,
+            inputTokens,
+            outputTokens,
+            model: MODEL,
+            conversationId: savedId,
+          });
+        }
 
         // Send done event
         controller.enqueue(encoder.encode(
