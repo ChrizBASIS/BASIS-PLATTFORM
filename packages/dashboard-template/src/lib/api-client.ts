@@ -60,8 +60,12 @@ export interface AgentInfo {
 }
 
 export async function fetchAgents(): Promise<AgentInfo[]> {
-  const data = await apiFetch<{ agents: AgentInfo[] }>('/agents/list');
-  return data.agents;
+  try {
+    const data = await apiFetch<{ agents: AgentInfo[] }>('/agents/list');
+    return data.agents;
+  } catch {
+    return [];
+  }
 }
 
 // ─── Tenant Profile (JSON) ────────────────────────────────────────────────────
