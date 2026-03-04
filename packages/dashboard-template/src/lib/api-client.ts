@@ -43,7 +43,7 @@ export async function fetchAgents(): Promise<AgentInfo[]> {
   return data.agents;
 }
 
-// ─── Tenant Profile (YAML) ────────────────────────────────────────────────────
+// ─── Tenant Profile (JSON) ────────────────────────────────────────────────────
 export interface TenantProfileData {
   meta: { name: string; plan: string; last_updated: string; version: number };
   business: { industry: string; company_size: string; description: string };
@@ -61,7 +61,7 @@ export interface TenantProfileData {
 
 export async function fetchTenantProfile(): Promise<TenantProfileData | null> {
   try {
-    const data = await apiFetch<{ profile: TenantProfileData }>('/tenant-profile/yaml');
+    const data = await apiFetch<{ profile: TenantProfileData }>('/tenant-profile/json');
     return data.profile;
   } catch {
     return null;
@@ -69,19 +69,35 @@ export async function fetchTenantProfile(): Promise<TenantProfileData | null> {
 }
 
 // ─── Token Usage ──────────────────────────────────────────────────────────────
+// Matches actual API response from GET /token-usage/summary
 export interface TokenSummary {
-  period: string;
+  period: { label: string; start: string; end: string };
   total_tokens: number;
   limit: number;
   percentage: number;
-  warning: boolean;
+  warning: 'critical' | 'warning' | null;
   agents: Array<{ agent: string; tokens: number }>;
 }
 
 export async function fetchTokenSummary(): Promise<TokenSummary | null> {
   try {
-    const data = await apiFetch<{ summary: TokenSummary }>('/token-usage/summary');
-    return data.summary;
+    const raw = await apiFetch<{
+      period: { label: string; start: string; end: string };
+      total: { totalTokens: number };
+      limit: number;
+      percentage: number;
+      warning: 'critical' | 'warning' | null;
+      byAgent: Array<{ agent: string; totalTokens: number }>;
+    }>('/token-usage/summary');
+
+    return {
+      period: raw.period,
+      total_tokens: raw.total.totalTokens,
+      limit: raw.limit,
+      percentage: raw.percentage,
+      warning: raw.warning,
+      agents: raw.byAgent.map((a) => ({ agent: a.agent, tokens: a.totalTokens })),
+    };
   } catch {
     return null;
   }

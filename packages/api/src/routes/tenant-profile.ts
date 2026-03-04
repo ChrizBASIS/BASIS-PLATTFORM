@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
-import { syncTenantYAML, getTenantYAML } from '../lib/tenant-yaml.js';
+import { syncTenantYAML, getTenantYAML, generateTenantProfile } from '../lib/tenant-yaml.js';
 
 const app = new Hono();
 
@@ -24,6 +24,21 @@ app.get('/yaml', authMiddleware, tenantMiddleware, rbac('tenant', 'read'), async
   }
 
   return c.json({ yaml });
+});
+
+// GET /tenant-profile/json — Profil als strukturiertes JSON (für Dashboard)
+app.get('/json', authMiddleware, tenantMiddleware, rbac('tenant', 'read'), async (c) => {
+  const tenantId = c.get('tenantId');
+
+  try {
+    const profile = await generateTenantProfile(tenantId);
+    return c.json({ profile });
+  } catch (error: any) {
+    if (error?.message?.includes('nicht gefunden')) {
+      return c.json({ error: 'Kein Profil vorhanden — bitte Onboarding abschließen' }, 404);
+    }
+    return c.json({ error: error?.message ?? 'Fehler beim Laden des Profils' }, 500);
+  }
 });
 
 // POST /tenant-profile/sync — YAML-Profil manuell aktualisieren
