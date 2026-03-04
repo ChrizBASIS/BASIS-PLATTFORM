@@ -17,13 +17,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/' },
-  { label: 'Agenten', href: '/agents', badge: '7' },
-  { label: 'Build Mode', href: '/sandbox' },
-  { label: 'Analysen', href: '/analytics' },
-  { label: 'Dokumente', href: '/documents' },
-  { label: 'Team', href: '/team' },
-  { label: 'Abrechnung', href: '/billing' },
+  { label: 'Dashboard',     href: '/' },
+  { label: 'Agenten',       href: '/agents', badge: '7' },
+  { label: 'Gespräche',     href: '/conversations' },
+  { label: 'Analysen',      href: '/analytics' },
+  { label: 'Build Mode',    href: '/sandbox' },
+  { label: 'Team',          href: '/team' },
+  { label: 'Abrechnung',    href: '/billing' },
 ];
 
 const bottomItems: NavItem[] = [

@@ -54,8 +54,9 @@ export interface AgentInfo {
   type: string;
   name: string;
   emoji: string;
-  description: string;
+  description?: string;
   enabled: boolean;
+  tools?: string[];
 }
 
 export async function fetchAgents(): Promise<AgentInfo[]> {
@@ -299,6 +300,39 @@ export interface TenantMember {
 export async function fetchMembers(tenantId: string): Promise<TenantMember[]> {
   const data = await apiFetch<{ members: TenantMember[] }>(`/tenants/${tenantId}/members`);
   return data.members;
+}
+
+// ─── Conversations ───────────────────────────────────────────────────────────
+export interface Conversation {
+  id: string;
+  agentType: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    agent?: string;
+    agentName?: string;
+    timestamp: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  try {
+    const data = await apiFetch<{ conversations: Conversation[] }>('/agents/conversations');
+    return data.conversations;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchConversation(id: string): Promise<Conversation | null> {
+  try {
+    const data = await apiFetch<{ conversation: Conversation }>(`/agents/conversations/${id}`);
+    return data.conversation;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Token History ────────────────────────────────────────────────────────────
