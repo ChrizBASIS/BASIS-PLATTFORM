@@ -97,10 +97,23 @@ export async function initCommand(options: InitOptions) {
     const { project } = await res.json();
     config.set('projectId', project.id);
 
+    // Activate selected agents
+    if (answers.agents.length > 0) {
+      await Promise.all(
+        answers.agents.map((agentType: string) =>
+          fetch(`${apiUrl}/api/v1/agents/config`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ agentType, enabled: true }),
+          }),
+        ),
+      );
+    }
+
     spinner.succeed('Projekt erstellt!');
     console.log();
     console.log(`  ${chalk.green('✔')} Template: ${chalk.cyan(answers.template)}`);
-    console.log(`  ${chalk.green('✔')} Agenten: ${chalk.cyan(answers.agents.join(', ') || 'keine')}`);
+    console.log(`  ${chalk.green('✔')} Agenten aktiviert: ${chalk.cyan(answers.agents.join(', ') || 'keine')}`);
     console.log(`  ${chalk.green('✔')} URL: ${chalk.cyan(`${answers.subdomain}.basis.app`)}`);
     console.log();
     console.log(`  → ${chalk.cyan('basis-cli deploy')}  (live schalten)`);
