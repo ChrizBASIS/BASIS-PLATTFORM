@@ -23,11 +23,13 @@ basis-platform/
 │   └── dashboard-template/     # Next.js 15 Dashboard (Port 3002)
 │       └── src/
 │           ├── app/            # Pages: /, /agents, /conversations,
-│           │                   #   /analytics, /settings, /login,
-│           │                   #   /auth/callback
-│           ├── components/     # Sidebar, AgentDesk, AgentChat,
-│           │                   #   TokenMeter, OnboardingWizard, AuthGuard
-│           ├── hooks/          # useDashboardData
+│           │                   #   /analytics, /sandbox, /integrations,
+│           │                   #   /settings, /team, /billing, /help,
+│           │                   #   /login, /auth/callback
+│           ├── components/     # Sidebar, AgentDesk, AgentChat, TokenMeter,
+│           │                   #   OnboardingWizard, AuthGuard,
+│           │                   #   Toast, ErrorBoundary, ThemeProvider
+│           ├── hooks/          # useDashboardData (AGENT_META)
 │           └── lib/            # api-client.ts, auth.ts (PKCE)
 ├── package.json                # npm workspaces
 └── tsconfig.base.json
@@ -169,6 +171,28 @@ PATCH  /api/v1/tenants/:id             Tenant aktualisieren
 DELETE /api/v1/tenants/:id             Tenant löschen (Soft-Delete)
 GET    /api/v1/tenants/:id/members     Team-Mitglieder
 
+GET    /api/v1/projects                Alle Projekte (Tenant)
+POST   /api/v1/projects                Projekt erstellen
+GET    /api/v1/projects/:id            Projekt-Details
+POST   /api/v1/projects/:id/deploy     Deployment starten
+GET    /api/v1/projects/:id/deployments Deployment-Verlauf
+DELETE /api/v1/projects/:id            Projekt löschen
+
+POST   /api/v1/sandbox/session         Sandbox-Session starten
+GET    /api/v1/sandbox/session/:id     Session-Status
+POST   /api/v1/sandbox/session/:id/widget   Widget via Nico erstellen
+POST   /api/v1/sandbox/session/:id/publish  Änderungen veröffentlichen
+POST   /api/v1/sandbox/session/:id/revert   Sandbox verwerfen
+GET    /api/v1/sandbox/session/:id/diff     Diff vs Live
+
+GET    /api/v1/integrations            Aktive Integrationen
+POST   /api/v1/integrations            Integration verbinden
+POST   /api/v1/integrations/:id/test   Verbindung testen
+POST   /api/v1/integrations/:id/sync   Sync auslösen
+GET    /api/v1/integrations/:id/contacts  Kontakte abrufen
+GET    /api/v1/integrations/:id/deals     Deals abrufen
+DELETE /api/v1/integrations/:id        Verbindung trennen
+
 GET    /api/v1/gdpr/export             Datenexport (DSGVO Art. 20)
 GET    /api/v1/gdpr/audit-log          Audit-Log
 DELETE /api/v1/gdpr/delete             Account-Löschung (DSGVO Art. 17)
@@ -180,11 +204,16 @@ DELETE /api/v1/gdpr/delete             Account-Löschung (DSGVO Art. 17)
 
 | Route | Beschreibung |
 |---|---|
-| `/` | Haupt-Dashboard: Lena-Briefing, Agenten-Desks, TokenMeter |
-| `/agents` | Agenten-Übersicht mit Status + Chat |
-| `/conversations` | Gesprächsverlauf mit Detail-Ansicht |
+| `/` | Haupt-Dashboard: Lena-Briefing, Agenten-Desks, TokenMeter, Onboarding |
+| `/agents` | Agenten-Übersicht mit Status + Inline-Chat |
+| `/conversations` | Gesprächsverlauf Master-Detail-View |
 | `/analytics` | Token-Verlauf, Agent-Performance, Aufgaben-Status |
-| `/settings` | Tenant-Name, Agenten-Config, Team, DSGVO |
+| `/sandbox` | **Build Mode** — YAML-Viewer, Projekte, Nico-Chat, Sandbox-Sessions, Deploy |
+| `/integrations` | CRM-Anbindungen: Odoo, HubSpot, Salesforce, Pipedrive |
+| `/team` | Team-Verwaltung, Einladungen, Rollen-Übersicht |
+| `/billing` | Plan-Übersicht (Starter/Pro/Enterprise), Token-Verbrauch |
+| `/help` | FAQ-Accordion, Tastenkürzel, Support |
+| `/settings` | Tenant-Name, Agenten-Config (toggle+tools), DSGVO |
 | `/login` | Keycloak PKCE Login |
 | `/auth/callback` | OAuth2 Callback |
 
@@ -199,10 +228,27 @@ DELETE /api/v1/gdpr/delete             Account-Löschung (DSGVO Art. 17)
 
 ---
 
+## Komponenten-Übersicht (Dashboard)
+
+| Komponente | Beschreibung |
+|---|---|
+| `Sidebar` | Hauptnavigation, aktiver Link-Highlight, Tenant-Badge |
+| `AuthGuard` | Schützt alle Routes (außer `/login`, `/auth/callback`) |
+| `ThemeProvider` | Dark/Light-Mode, CSS-Variablen |
+| `Toast` + `useToast` | Globale Notifications (success/error/info/warning) |
+| `ErrorBoundary` | React-Fehlergrenze mit Reload-Option |
+| `AgentDesk` | Agenten-Karte auf dem Haupt-Dashboard |
+| `AgentChat` | Inline-Chat-Panel (SSE-Streaming) |
+| `TokenMeter` | Balken-Anzeige Token-Verbrauch |
+| `OnboardingWizard` | 4-Schritt Wizard (Profil → Aufgaben → Analyse → Agenten) |
+
+---
+
 ## Compliance
 
 - Alle Endpoints mit `authMiddleware` + `tenantMiddleware` + `rbac()` gesichert
 - Tenant-Isolation via Drizzle-Queries (`eq(table.tenantId, tenantId)`)
-- Audit-Log für kritische Aktionen (tenant.deleted, project.deleted)
+- Audit-Log für kritische Aktionen (tenant.deleted, project.deleted, integration.created)
 - DSGVO Art. 17: Vollständige Datenlöschung inkl. `roles`, `rolePermissions`
-- CRM-Credentials AES-256-GCM verschlüsselt
+- CRM-Credentials AES-256-GCM verschlüsselt (nie im Klartext in der DB)
+- Alle CRM-Daten nur On-Demand abgerufen — kein Rohdaten-Caching

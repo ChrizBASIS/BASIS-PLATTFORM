@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useToast } from '@/components/Toast';
 
 const PLANS = [
   {
@@ -37,6 +38,7 @@ const PLANS = [
 
 export default function BillingPage() {
   const { tenant, tokens } = useDashboardData();
+  const { toast } = useToast();
   const currentPlan = tenant?.meta?.plan ?? 'starter';
   const [hovPlan, setHovPlan] = useState<string | null>(null);
   const [upgradeHov, setUpgradeHov] = useState<string | null>(null);
@@ -169,6 +171,15 @@ export default function BillingPage() {
                     <button
                       onMouseEnter={() => setUpgradeHov(plan.id)}
                       onMouseLeave={() => setUpgradeHov(null)}
+                      onClick={() => {
+                        const isUpgrade = !(currentPlan === 'enterprise' || (plan.id === 'starter' && currentPlan !== 'starter'));
+                        toast(
+                          isUpgrade
+                            ? `Upgrade auf ${plan.label} angefragt — support@basis.app meldet sich`
+                            : `Downgrade auf ${plan.label} angefragt — support@basis.app meldet sich`,
+                          'info',
+                        );
+                      }}
                       style={{
                         width: '100%', padding: '12px',
                         background: upgradeHov === plan.id ? 'var(--text)' : plan.highlight ? 'var(--accent)' : 'var(--surface-2)',
