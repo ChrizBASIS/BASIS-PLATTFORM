@@ -1,0 +1,23 @@
+{
+  "name": "basis-platform",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@basis/api",
+    "dev:cli": "npm run dev --workspace=@basis/cli",
+    "dev:dashboard": "npm run dev --workspace=@basis/dashboard-template",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "db:generate": "npm run db:generate --workspace=@basis/api",
+    "db:migrate": "npm run db:migrate --workspace=@basis/api"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "prettier": "^3.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
