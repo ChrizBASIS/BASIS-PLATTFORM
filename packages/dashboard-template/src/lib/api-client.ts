@@ -159,15 +159,28 @@ export async function* streamChat(
   message: string,
   conversationId?: string,
 ): AsyncGenerator<StreamEvent> {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/api/v1/agents/chat/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ message, ...(conversationId ? { conversationId } : {}) }),
+  const body = JSON.stringify({ message, ...(conversationId ? { conversationId } : {}) });
+  const makeHeaders = (t: string | null) => ({
+    'Content-Type': 'application/json',
+    ...(t ? { Authorization: `Bearer ${t}` } : {}),
   });
+
+  let res = await fetch(`${API_BASE}/api/v1/agents/chat/stream`, {
+    method: 'POST', headers: makeHeaders(getToken()), body,
+  });
+
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await fetch(`${API_BASE}/api/v1/agents/chat/stream`, {
+        method: 'POST', headers: makeHeaders(getAccessToken()), body,
+      });
+    } else {
+      clearTokens();
+      if (typeof window !== 'undefined') window.location.href = '/login';
+      throw new Error('Nicht angemeldet');
+    }
+  }
 
   if (!res.ok || !res.body) {
     throw new Error(`Chat error ${res.status}`);
