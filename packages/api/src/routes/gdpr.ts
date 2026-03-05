@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, auditLog, tenantMembers, tokenUsage, onboardingTasks, onboardingProfiles, supportSessions, integrations, integrationSyncLog, roles, rolePermissions } from '../db/schema.js';
+import { tenants, users, projects, deployments, envVars, agentConversations, agentMemory, agentConfig, sandboxSessions, widgets, auditLog, tenantMembers, tokenUsage, onboardingTasks, onboardingProfiles, supportSessions, integrations, integrationSyncLog, roles, rolePermissions } from '../db/schema.js';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -50,6 +50,9 @@ gdprRouter.post('/delete', rbac('gdpr', 'manage'), async (c) => {
   await db.delete(agentMemory).where(eq(agentMemory.tenantId, tenantId));
   await db.delete(agentConversations).where(eq(agentConversations.tenantId, tenantId));
   await db.delete(agentConfig).where(eq(agentConfig.tenantId, tenantId));
+
+  // Delete all widgets for tenant (must be before projects/sessions due to FK refs)
+  await db.delete(widgets).where(eq(widgets.tenantId, tenantId));
 
   const tenantProjects = await db.select().from(projects).where(eq(projects.tenantId, tenantId));
   for (const project of tenantProjects) {

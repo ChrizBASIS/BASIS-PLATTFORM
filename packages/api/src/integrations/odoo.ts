@@ -15,6 +15,9 @@ import type {
   CRMInvoice,
   CRMActivity,
   CRMSummary,
+  CRMEvent,
+  CRMProduct,
+  CRMEmployee,
   OdooCredentials,
 } from './types.js';
 
@@ -243,5 +246,69 @@ export class OdooAdapter implements CRMAdapter {
       recentActivities: activities.length,
       lastSynced: new Date().toISOString(),
     };
+  }
+
+  async getEvents(limit = 20): Promise<CRMEvent[]> {
+    const records = await this.searchRead(
+      'event.event',
+      [],
+      ['name', 'date_begin', 'date_end', 'address_id', 'note', 'seats_max', 'seats_available', 'stage_id', 'organizer_id'],
+      limit,
+      'date_begin asc',
+    );
+
+    return records.map((r: any) => ({
+      externalId: String(r.id),
+      name: r.name ?? '',
+      dateBegin: r.date_begin ?? '',
+      dateEnd: r.date_end || undefined,
+      location: r.address_id?.[1] || undefined,
+      description: r.note ? String(r.note).replace(/<[^>]*>/g, '').substring(0, 200) : undefined,
+      seats: r.seats_max ?? undefined,
+      seatsAvailable: r.seats_available ?? undefined,
+      state: r.stage_id?.[1]?.toLowerCase()?.includes('done') ? 'done'
+        : r.stage_id?.[1]?.toLowerCase()?.includes('cancel') ? 'cancel'
+        : 'confirm',
+      organizerName: r.organizer_id?.[1] || undefined,
+    }));
+  }
+
+  async getProducts(limit = 30): Promise<CRMProduct[]> {
+    const records = await this.searchRead(
+      'product.template',
+      [['sale_ok', '=', true]],
+      ['name', 'list_price', 'type', 'categ_id', 'active'],
+      limit,
+      'name asc',
+    );
+
+    return records.map((r: any) => ({
+      externalId: String(r.id),
+      name: r.name ?? '',
+      listPrice: r.list_price ?? 0,
+      currency: 'EUR',
+      type: r.type ?? 'consu',
+      category: r.categ_id?.[1] || undefined,
+      active: r.active ?? true,
+    }));
+  }
+
+  async getEmployees(limit = 50): Promise<CRMEmployee[]> {
+    const records = await this.searchRead(
+      'hr.employee',
+      [],
+      ['name', 'job_title', 'department_id', 'work_email', 'work_phone'],
+      limit,
+      'name asc',
+    );
+
+    return records.map((r: any) => ({
+      externalId: String(r.id),
+      name: r.name ?? '',
+      jobTitle: r.job_title || undefined,
+      department: r.department_id?.[1] || undefined,
+      email: r.work_email || undefined,
+      phone: r.work_phone || undefined,
+    }));
   }
 }

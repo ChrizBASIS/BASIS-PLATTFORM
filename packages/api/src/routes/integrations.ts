@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { integrations, integrationSyncLog, auditLog } from '../db/schema.js';
+import { integrations, integrationSyncLog, auditLog, agentMemory } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { rbac } from '../middleware/rbac.js';
 import { encryptCredentials } from '../lib/crypto.js';
-import { createAdapter, SUPPORTED_PROVIDERS } from '../integrations/registry.js';
+import { createAdapter, createMailAdapter, SUPPORTED_PROVIDERS } from '../integrations/registry.js';
 import { syncTenantYAML } from '../lib/tenant-yaml.js';
 
 const app = new Hono();
@@ -19,7 +19,7 @@ app.get('/providers', authMiddleware, tenantMiddleware, async (c) => {
 
 // ─── POST /integrations — Neue CRM-Verbindung einrichten ────────────────────
 const createSchema = z.object({
-  provider: z.enum(['odoo', 'hubspot', 'salesforce', 'pipedrive', 'custom']),
+  provider: z.enum(['odoo', 'hubspot', 'salesforce', 'pipedrive', 'custom', 'email']),
   label: z.string().optional(),
   baseUrl: z.string().url().optional(),
   credentials: z.record(z.string()),
@@ -47,14 +47,24 @@ app.post('/', authMiddleware, tenantMiddleware, rbac('integration', 'create'), a
       delete normalizedCreds.password;
     }
   }
+  // Normalize email credentials: imapPort stored as string; ImapMailAdapter converts with Number()
+  if (provider === 'email' && normalizedCreds.imapPort) {
+    normalizedCreds.imapPort = String(normalizedCreds.imapPort);
+  }
 
   // Encrypt credentials — they never touch DB in plaintext
   const encrypted = encryptCredentials(JSON.stringify(normalizedCreds));
 
   // Test connection before saving
   try {
-    const adapter = createAdapter(provider as any, encrypted);
-    const ok = await adapter.testConnection();
+    let ok: boolean;
+    if (provider === 'email') {
+      const mailAdapter = createMailAdapter(encrypted);
+      ok = await mailAdapter.testConnection();
+    } else {
+      const adapter = createAdapter(provider as any, encrypted);
+      ok = await adapter.testConnection();
+    }
     if (!ok) {
       return c.json({ error: 'Verbindung fehlgeschlagen — bitte Zugangsdaten prüfen' }, 400);
     }
@@ -129,13 +139,20 @@ app.post('/:id/test', authMiddleware, tenantMiddleware, rbac('integration', 'man
   if (!integration) return c.json({ error: 'Integration nicht gefunden' }, 404);
 
   try {
-    const adapter = createAdapter(integration.provider as any, {
+    const encData = {
       encrypted: integration.credentialsEncrypted,
       iv: integration.credentialsIv,
       tag: integration.credentialsTag,
-    });
+    };
 
-    const ok = await adapter.testConnection();
+    let ok: boolean;
+    if (integration.provider === 'email') {
+      const mailAdapter = createMailAdapter(encData);
+      ok = await mailAdapter.testConnection();
+    } else {
+      const adapter = createAdapter(integration.provider as any, encData);
+      ok = await adapter.testConnection();
+    }
     const newStatus = ok ? 'active' : 'error';
 
     await db
@@ -171,25 +188,48 @@ app.post('/:id/sync', authMiddleware, tenantMiddleware, rbac('integration', 'man
   const start = Date.now();
 
   try {
-    const adapter = createAdapter(integration.provider as any, {
+    const encData = {
       encrypted: integration.credentialsEncrypted,
       iv: integration.credentialsIv,
       tag: integration.credentialsTag,
-    });
-
-    // Get aggregated summary — NO raw data stored
-    const raw: any = await adapter.getSummary();
-    const durationMs = Date.now() - start;
-
-    // Normalize summary fields for dashboard compatibility
-    const summary = {
-      totalContacts: raw.totalContacts ?? 0,
-      openDeals: raw.openDeals ?? 0,
-      totalRevenue: raw.revenuePipeline ?? raw.totalRevenue ?? 0,
-      currency: raw.pipelineCurrency ?? raw.currency ?? 'EUR',
-      openInvoices: raw.openInvoices ?? 0,
-      overdueInvoices: raw.overdueInvoices ?? 0,
     };
+
+    let summary: any;
+    let recordsSynced = 0;
+
+    if (integration.provider === 'email') {
+      // Email sync: test connection + count recent emails
+      const mailAdapter = createMailAdapter(encData);
+      const ok = await mailAdapter.testConnection();
+      if (!ok) throw new Error('E-Mail-Verbindung fehlgeschlagen');
+      const recent = await mailAdapter.getRecentEmails(5, 'INBOX');
+      const unread = recent.filter(e => !e.read).length;
+      summary = {
+        provider: 'email',
+        connected: true,
+        recentEmails: recent.length,
+        unreadEmails: unread,
+        latestSubject: recent[0]?.subject ?? '(keine Mails)',
+        latestFrom: recent[0]?.from ?? '',
+        latestDate: recent[0]?.date ?? '',
+      };
+      recordsSynced = recent.length;
+    } else {
+      // CRM sync: get aggregated summary
+      const adapter = createAdapter(integration.provider as any, encData);
+      const raw: any = await adapter.getSummary();
+      summary = {
+        totalContacts: raw.totalContacts ?? 0,
+        openDeals: raw.openDeals ?? 0,
+        totalRevenue: raw.revenuePipeline ?? raw.totalRevenue ?? 0,
+        currency: raw.pipelineCurrency ?? raw.currency ?? 'EUR',
+        openInvoices: raw.openInvoices ?? 0,
+        overdueInvoices: raw.overdueInvoices ?? 0,
+      };
+      recordsSynced = (summary.totalContacts ?? 0) + (summary.openDeals ?? 0);
+    }
+
+    const durationMs = Date.now() - start;
 
     // Update integration status
     await db
@@ -202,7 +242,7 @@ app.post('/:id/sync', authMiddleware, tenantMiddleware, rbac('integration', 'man
       integrationId,
       tenantId,
       action: 'sync',
-      recordsSynced: summary.totalContacts + summary.openDeals,
+      recordsSynced,
       durationMs,
     });
 
@@ -215,7 +255,22 @@ app.post('/:id/sync', authMiddleware, tenantMiddleware, rbac('integration', 'man
       details: { integrationId, provider: integration.provider, durationMs },
     });
 
-    // Update tenant YAML with CRM summary
+    // For CRM integrations: persist summary in agent_memory so YAML crm_summary field is populated
+    if (integration.provider !== 'email') {
+      const memKey = 'crm_summary';
+      const existing = await db
+        .select({ id: agentMemory.id })
+        .from(agentMemory)
+        .where(and(eq(agentMemory.tenantId, tenantId), eq(agentMemory.key, memKey)))
+        .limit(1);
+      if (existing.length > 0) {
+        await db.update(agentMemory).set({ value: summary, updatedAt: new Date() }).where(eq(agentMemory.id, existing[0].id));
+      } else {
+        await db.insert(agentMemory).values({ tenantId, key: memKey, value: summary });
+      }
+    }
+
+    // Update tenant YAML
     await syncTenantYAML(tenantId);
 
     return c.json({ success: true, summary, durationMs });

@@ -74,7 +74,7 @@ export async function runAgent(
   let assistantMessage = '';
   let inputTokens = 0;
   let outputTokens = 0;
-  const executedToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const executedToolCalls: Array<{ name: string; args: Record<string, unknown>; result?: string }> = [];
 
   try {
     const tools = getToolsForAgent(currentAgent);
@@ -114,7 +114,7 @@ export async function runAgent(
             tool_call_id: tc.id,
             content: result,
           } as any);
-          executedToolCalls.push({ name: tc.function.name, args });
+          executedToolCalls.push({ name: tc.function.name, args, result });
         }
         toolCallRounds++;
         continue; // Let GPT process the tool results

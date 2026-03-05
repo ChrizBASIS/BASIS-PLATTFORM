@@ -7,8 +7,10 @@
 
 import { OdooAdapter } from './odoo.js';
 import { HubSpotAdapter } from './hubspot.js';
+import { ImapMailAdapter } from './mail-adapter.js';
+import { CalDavAdapter } from './calendar-adapter.js';
 import { parseCredentials, type EncryptedData } from '../lib/crypto.js';
-import type { CRMAdapter, CRMProvider, OdooCredentials, HubSpotCredentials } from './types.js';
+import type { CRMAdapter, CRMProvider, OdooCredentials, HubSpotCredentials, MailAdapter, MailCredentials, CalendarAdapter, CalendarCredentials } from './types.js';
 
 /**
  * Creates a CRM adapter from encrypted credentials stored in DB.
@@ -30,6 +32,24 @@ export function createAdapter(
     default:
       throw new Error(`CRM-Provider "${provider}" wird noch nicht unterstützt`);
   }
+}
+
+/**
+ * Creates a Mail adapter from encrypted credentials stored in DB.
+ * Used for email integrations (provider='email').
+ */
+export function createMailAdapter(encrypted: EncryptedData): MailAdapter {
+  const creds = parseCredentials<MailCredentials>(encrypted);
+  return new ImapMailAdapter(creds);
+}
+
+/**
+ * Creates a Calendar adapter from encrypted credentials stored in DB.
+ * Used for calendar integrations (provider='calendar').
+ */
+export function createCalendarAdapter(encrypted: EncryptedData): CalendarAdapter {
+  const creds = parseCredentials<CalendarCredentials>(encrypted);
+  return new CalDavAdapter(creds);
 }
 
 /**

@@ -6,7 +6,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { useDashboardData, AGENT_META } from '@/hooks/useDashboardData';
 import {
   streamChat, sendDirectChat, AGENT_TYPE_MAP,
-  fetchWidgets, fetchLatestConversation,
+  fetchWidgets, fetchWidget, fetchLatestConversation,
   type Widget,
 } from '@/lib/api-client';
 
@@ -58,6 +58,20 @@ export default function AgentDetailPage() {
   // Job tracker state
   const [jobs, setJobs] = useState<Job[]>([]);
   const [widgets, setWidgets] = useState<Widget[]>([]);
+  const [previewWidgetId, setPreviewWidgetId] = useState<string | null>(null);
+  const [previewWidgetCode, setPreviewWidgetCode] = useState<string | null>(null);
+  const [previewWidgetTitle, setPreviewWidgetTitle] = useState<string | null>(null);
+
+  // Load widget code when previewWidgetId changes
+  useEffect(() => {
+    if (!previewWidgetId) { setPreviewWidgetCode(null); setPreviewWidgetTitle(null); return; }
+    fetchWidget(previewWidgetId).then((w) => {
+      if (w) {
+        setPreviewWidgetCode(w.code);
+        setPreviewWidgetTitle(w.title);
+      }
+    }).catch(() => {});
+  }, [previewWidgetId]);
 
   // Load last conversation or show greeting
   useEffect(() => {
@@ -137,6 +151,7 @@ export default function AgentDetailPage() {
     if (/crm_contacts|crm_deals/i.test(tool)) return 'crm';
     if (/crm_invoices|crm_summary/i.test(tool)) return 'finance';
     if (/widget|publish/i.test(tool)) return 'widget';
+    if (/email|mail/i.test(tool)) return 'general';
     return 'general';
   };
 
@@ -145,10 +160,17 @@ export default function AgentDetailPage() {
     get_crm_deals: 'Deals abrufen',
     get_crm_invoices: 'Rechnungen abrufen',
     get_crm_summary: 'CRM-Zusammenfassung',
+    get_events: 'Veranstaltungen abrufen',
+    get_products: 'Produkte abrufen',
+    get_employees: 'Mitarbeiter abrufen',
+    generate_widget: 'Widget generieren',
     publish_widget_to_menu: 'Widget veröffentlichen',
     list_widgets: 'Widgets auflisten',
     ask_agent: 'Agent-Anfrage',
     check_agent_status: 'Agent-Status',
+    search_emails: 'E-Mails durchsuchen',
+    read_email: 'E-Mail lesen',
+    draft_email: 'E-Mail-Entwurf erstellen',
   };
 
   const AGENT_NAMES: Record<string, string> = {
@@ -256,10 +278,24 @@ export default function AgentDetailPage() {
         setMessages((prev) => prev.map((m) =>
           m.id === replyId ? { ...m, agentName: res.agentName, content: res.reply, streaming: false } : m,
         ));
-        // Show tool calls as sub-jobs
+        // Show tool calls as sub-jobs + extract widget preview
         if (res.metadata?.toolCalls) {
           for (const tc of res.metadata.toolCalls) {
             addToolJob(tc.name, tc.args);
+            // If Nico generated a widget, show preview
+            if (tc.name === 'generate_widget' && tc.result) {
+              try {
+                const parsed = JSON.parse(tc.result);
+                if (parsed.widgetId) {
+                  setPreviewWidgetId(parsed.widgetId);
+                  fetchWidgets().then(setWidgets).catch(() => {});
+                }
+              } catch { /* ignore parse errors */ }
+            }
+            // If widget was published, refresh widgets
+            if (tc.name === 'publish_widget_to_menu') {
+              fetchWidgets().then(setWidgets).catch(() => {});
+            }
           }
         }
         completeJob(jobId, res.reply);
@@ -484,6 +520,54 @@ export default function AgentDetailPage() {
 
             {/* Job feed */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+
+              {/* Nico: Widget Preview iframe */}
+              {slug === 'nico' && previewWidgetCode && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+                  }}>
+                    <div style={{ width: 6, height: 6, background: 'var(--warning)' }} />
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                      letterSpacing: '0.15em', color: 'var(--warning)', flex: 1,
+                    }}>VORSCHAU — ENTWURF</span>
+                    <button
+                      onClick={() => { setPreviewWidgetId(null); setPreviewWidgetCode(null); setPreviewWidgetTitle(null); }}
+                      style={{
+                        padding: '3px 8px', background: 'transparent',
+                        border: '1px solid var(--border)', color: 'var(--text-muted)',
+                        fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >SCHLIESSEN</button>
+                  </div>
+                  {previewWidgetTitle && (
+                    <p style={{
+                      fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 8,
+                    }}>{previewWidgetTitle}</p>
+                  )}
+                  <div style={{
+                    border: '1px solid var(--accent)', background: '#000',
+                    height: 360, position: 'relative', overflow: 'hidden',
+                  }}>
+                    <iframe
+                      srcDoc={previewWidgetCode}
+                      sandbox="allow-scripts"
+                      style={{
+                        width: '100%', height: '100%', border: 'none',
+                        background: '#0a0a0a',
+                      }}
+                      title={previewWidgetTitle ?? 'Widget Vorschau'}
+                    />
+                  </div>
+                  <p style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
+                    marginTop: 6,
+                  }}>Sage Nico im Chat ob es passt oder was geändert werden soll.</p>
+                </div>
+              )}
+
               {/* Nico: widget list */}
               {slug === 'nico' && widgets.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
@@ -494,8 +578,17 @@ export default function AgentDetailPage() {
                   {widgets.map((w) => (
                     <div key={w.id} style={{
                       padding: '8px 12px', background: 'var(--surface)',
-                      border: '1px solid var(--border)', marginBottom: 2,
+                      border: `1px solid ${w.id === previewWidgetId ? 'var(--accent)' : 'var(--border)'}`, marginBottom: 2,
                       display: 'flex', alignItems: 'center', gap: 8,
+                      cursor: 'pointer',
+                    }} onClick={() => {
+                      if (w.code) {
+                        setPreviewWidgetId(w.id);
+                        setPreviewWidgetCode(w.code);
+                        setPreviewWidgetTitle(w.title);
+                      } else {
+                        setPreviewWidgetId(w.id);
+                      }
                     }}>
                       <div style={{
                         width: 6, height: 6,

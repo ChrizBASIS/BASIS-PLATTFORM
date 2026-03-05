@@ -1,10 +1,10 @@
 import { db } from '../db/index.js';
 import { agentMemory, agentConversations, onboardingTasks, onboardingProfiles, integrations } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { AGENTS, getAgent } from './prompts.js';
 import { getTenantYAML } from '../lib/tenant-yaml.js';
-import { createAdapter } from '../integrations/registry.js';
-import type { CRMAdapter } from '../integrations/types.js';
+import { createAdapter, createMailAdapter } from '../integrations/registry.js';
+import type { CRMAdapter, MailAdapter } from '../integrations/types.js';
 import type { AgentType, AgentContext, ChatMessage, AgentResponse } from './types.js';
 
 /**
@@ -133,6 +133,12 @@ export async function loadAgentContext(
     parts.push(crmBriefing);
   }
 
+  // 5. Mail Briefing — letzte E-Mails für Agenten mit Mail-Zugang
+  const mailBriefing = await loadMailBriefing(agentType, tenantId);
+  if (mailBriefing) {
+    parts.push(mailBriefing);
+  }
+
   return parts.join('\n');
 }
 
@@ -146,7 +152,11 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
     const [intg] = await db
       .select()
       .from(integrations)
-      .where(and(eq(integrations.tenantId, tenantId), eq(integrations.status, 'active')))
+      .where(and(
+        eq(integrations.tenantId, tenantId),
+        eq(integrations.status, 'active'),
+        ne(integrations.provider, 'email'),
+      ))
       .limit(1);
     if (!intg) return null;
     adapter = createAdapter(intg.provider as any, {
@@ -164,10 +174,11 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
   try {
     switch (agentType) {
       case 'finance': {
-        const [summary, invoices, deals] = await Promise.all([
+        const [summary, invoices, deals, products] = await Promise.all([
           adapter.getSummary().catch(() => null),
           adapter.getInvoices(20).catch(() => []),
           adapter.getDeals(10).catch(() => []),
+          adapter.getProducts?.(20).catch(() => []) ?? Promise.resolve([]),
         ]);
         if (summary) {
           parts.push(`\nFINANZ-ÜBERBLICK:`);
@@ -187,13 +198,21 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
             parts.push(`- ${d.title}: ${d.value ?? '?'} ${d.currency ?? ''} | Phase: ${d.stage} | ${d.contactName ?? ''}`);
           }
         }
+        if (products.length > 0) {
+          parts.push(`\nPRODUKTE/DIENSTLEISTUNGEN (${products.length}):`);
+          for (const p of products.slice(0, 15)) {
+            parts.push(`- ${p.name}: ${p.listPrice} ${p.currency} | Typ: ${p.type}${p.category ? ` | Kategorie: ${p.category}` : ''}`);
+          }
+        }
         break;
       }
 
       case 'backoffice': {
-        const [summary, contacts] = await Promise.all([
+        const [summary, contacts, employees, products] = await Promise.all([
           adapter.getSummary().catch(() => null),
           adapter.getContacts(30).catch(() => []),
+          adapter.getEmployees?.(30).catch(() => []) ?? Promise.resolve([]),
+          adapter.getProducts?.(20).catch(() => []) ?? Promise.resolve([]),
         ]);
         if (summary) {
           parts.push(`\nFIRMEN-ÜBERBLICK:`);
@@ -206,14 +225,27 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
             parts.push(`- ${c.name}${c.company ? ` (${c.company})` : ''} | ${c.email ?? ''} | ${c.phone ?? ''}`);
           }
         }
+        if (employees.length > 0) {
+          parts.push(`\nMITARBEITER (${employees.length}):`);
+          for (const e of employees) {
+            parts.push(`- ${e.name}${e.jobTitle ? ` — ${e.jobTitle}` : ''}${e.department ? ` (${e.department})` : ''} | ${e.email ?? ''}`);
+          }
+        }
+        if (products.length > 0) {
+          parts.push(`\nPRODUKTE/DIENSTLEISTUNGEN (${products.length}):`);
+          for (const p of products.slice(0, 15)) {
+            parts.push(`- ${p.name}: ${p.listPrice} ${p.currency} | ${p.type}${p.category ? ` | ${p.category}` : ''}`);
+          }
+        }
         break;
       }
 
       case 'marketing': {
-        const [summary, contacts, activities] = await Promise.all([
+        const [summary, contacts, activities, events] = await Promise.all([
           adapter.getSummary().catch(() => null),
           adapter.getContacts(20).catch(() => []),
           adapter.getActivities(undefined, 10).catch(() => []),
+          adapter.getEvents?.(15).catch(() => []) ?? Promise.resolve([]),
         ]);
         if (summary) {
           parts.push(`\nMARKETING-ÜBERBLICK:`);
@@ -232,13 +264,20 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
             parts.push(`- ${a.date}: ${a.type} — ${a.description.substring(0, 100)}${a.contactName ? ` (${a.contactName})` : ''}`);
           }
         }
+        if (events.length > 0) {
+          parts.push(`\nVERANSTALTUNGEN/EVENTS (${events.length}):`);
+          for (const ev of events) {
+            parts.push(`- ${ev.name} | ${ev.dateBegin}${ev.dateEnd ? ` bis ${ev.dateEnd}` : ''} | ${ev.location ?? 'Kein Ort'}${ev.seatsAvailable ? ` | ${ev.seatsAvailable} Plätze frei` : ''}`);
+          }
+        }
         break;
       }
 
       case 'sekretariat': {
-        const [contacts, activities] = await Promise.all([
+        const [contacts, activities, events] = await Promise.all([
           adapter.getContacts(25).catch(() => []),
           adapter.getActivities(undefined, 15).catch(() => []),
+          adapter.getEvents?.(10).catch(() => []) ?? Promise.resolve([]),
         ]);
         if (contacts.length > 0) {
           parts.push(`\nKONTAKTE FÜR KORRESPONDENZ (${contacts.length}):`);
@@ -250,6 +289,12 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
           parts.push(`\nLETZTE AKTIVITÄTEN/KOMMUNIKATION:`);
           for (const a of activities) {
             parts.push(`- ${a.date}: ${a.type} — ${a.description.substring(0, 100)}${a.contactName ? ` (${a.contactName})` : ''}`);
+          }
+        }
+        if (events.length > 0) {
+          parts.push(`\nKOMMENDE VERANSTALTUNGEN (${events.length}):`);
+          for (const ev of events) {
+            parts.push(`- ${ev.name} | ${ev.dateBegin}${ev.location ? ` | ${ev.location}` : ''}`);
           }
         }
         break;
@@ -270,8 +315,10 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
       }
 
       case 'orchestrator': {
-        const [summary] = await Promise.all([
+        const [summary, events, employees] = await Promise.all([
           adapter.getSummary().catch(() => null),
+          adapter.getEvents?.(10).catch(() => []) ?? Promise.resolve([]),
+          adapter.getEmployees?.(20).catch(() => []) ?? Promise.resolve([]),
         ]);
         if (summary) {
           parts.push(`\nGESAMTÜBERBLICK (für Team-Koordination):`);
@@ -280,6 +327,18 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
           parts.push(`- Überfällige Rechnungen: ${summary.overdueInvoices}`);
           parts.push(`- Letzte Aktivitäten: ${summary.recentActivities}`);
           parts.push(`- Letzte Synchronisierung: ${summary.lastSynced}`);
+        }
+        if (events.length > 0) {
+          parts.push(`\nVERANSTALTUNGEN (${events.length}):`);
+          for (const ev of events) {
+            parts.push(`- ${ev.name} | ${ev.dateBegin}${ev.dateEnd ? ` bis ${ev.dateEnd}` : ''} | ${ev.location ?? 'Kein Ort'}${ev.seatsAvailable ? ` | ${ev.seatsAvailable} Plätze frei` : ''}`);
+          }
+        }
+        if (employees.length > 0) {
+          parts.push(`\nMITARBEITER (${employees.length}):`);
+          for (const e of employees) {
+            parts.push(`- ${e.name}${e.jobTitle ? ` — ${e.jobTitle}` : ''}${e.department ? ` (${e.department})` : ''}`);
+          }
         }
         break;
       }
@@ -304,6 +363,63 @@ async function loadCrmBriefing(agentType: AgentType, tenantId: string): Promise<
   }
 
   return parts.length > 1 ? parts.join('\n') : null;
+}
+
+/**
+ * Lädt die letzten E-Mails als Briefing für Agenten mit Mail-Zugang.
+ * sekretariat: 10 Mails, orchestrator/backoffice: 5 Mails
+ */
+async function loadMailBriefing(agentType: AgentType, tenantId: string): Promise<string | null> {
+  // Only these agents get mail context
+  const mailLimits: Partial<Record<AgentType, number>> = {
+    sekretariat: 10,
+    orchestrator: 5,
+    backoffice: 5,
+  };
+  const limit = mailLimits[agentType];
+  if (!limit) return null;
+
+  let mailAdapter: MailAdapter | null = null;
+  try {
+    const [intg] = await db
+      .select()
+      .from(integrations)
+      .where(
+        and(
+          eq(integrations.tenantId, tenantId),
+          eq(integrations.provider, 'email'),
+          eq(integrations.status, 'active'),
+        ),
+      )
+      .limit(1);
+    if (!intg) return null;
+    mailAdapter = createMailAdapter({
+      encrypted: intg.credentialsEncrypted,
+      iv: intg.credentialsIv,
+      tag: intg.credentialsTag,
+    } as any);
+  } catch {
+    return null;
+  }
+  if (!mailAdapter) return null;
+
+  try {
+    const emails = await mailAdapter.getRecentEmails(limit, 'INBOX');
+    if (emails.length === 0) return null;
+
+    const parts: string[] = [`\nDEIN E-MAIL-BRIEFING (letzte ${emails.length} Mails):`];
+    for (const e of emails) {
+      const readFlag = e.read ? '' : ' [UNGELESEN]';
+      parts.push(`- ${e.date.substring(0, 16)} | Von: ${e.from} | Betreff: ${e.subject}${readFlag}`);
+      if (e.snippet) {
+        parts.push(`  → ${e.snippet.substring(0, 120)}...`);
+      }
+    }
+    return parts.join('\n');
+  } catch (err: any) {
+    console.error(`[loadMailBriefing] Error for ${agentType}:`, err?.message);
+    return null;
+  }
 }
 
 /**

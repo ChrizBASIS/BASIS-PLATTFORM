@@ -54,6 +54,19 @@ const PROVIDERS = [
     ],
     needsBaseUrl: false,
   },
+  {
+    id: 'email',
+    label: 'E-Mail (IMAP)',
+    color: '#3B82F6',
+    description: 'E-Mail-Postfach — Mails lesen, durchsuchen, Entwürfe erstellen',
+    fields: [
+      { key: 'imapHost', label: 'IMAP Server',     placeholder: 'imap.gmail.com' },
+      { key: 'imapPort', label: 'IMAP Port',        placeholder: '993' },
+      { key: 'email',    label: 'E-Mail-Adresse',   placeholder: 'name@firma.at' },
+      { key: 'password', label: 'App-Passwort',     placeholder: '••••••••', type: 'password' },
+    ],
+    needsBaseUrl: false,
+  },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -196,7 +209,7 @@ export default function IntegrationsPage() {
     }
   };
 
-  const fmt = (n: number) => n.toLocaleString('de-AT');
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('de-AT');
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
@@ -495,11 +508,15 @@ export default function IntegrationsPage() {
                         <div style={{ marginBottom: 20 }}>
                           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 10 }}>SYNC-ERGEBNIS</p>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
-                            {[
+                            {((lastSummary as any).provider === 'email' ? [
+                              { label: 'LETZTE MAILS',  value: fmt((lastSummary as any).recentEmails) },
+                              { label: 'UNGELESEN',      value: fmt((lastSummary as any).unreadEmails) },
+                              { label: 'NEUESTE',        value: String((lastSummary as any).latestSubject || '—') },
+                            ] : [
                               { label: 'KONTAKTE',  value: fmt(lastSummary.totalContacts) },
                               { label: 'DEALS',     value: fmt(lastSummary.openDeals) },
-                              { label: 'UMSATZ',    value: `${lastSummary.currency} ${fmt(lastSummary.totalRevenue)}` },
-                            ].map((s) => (
+                              { label: 'UMSATZ',    value: `${lastSummary.currency ?? 'EUR'} ${fmt(lastSummary.totalRevenue)}` },
+                            ]).map((s) => (
                               <div key={s.label} style={{ background: 'var(--surface)', padding: '14px 16px', borderLeft: `3px solid ${meta.color}` }}>
                                 <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</p>
                                 <p style={{ fontSize: 18, fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>{s.value}</p>

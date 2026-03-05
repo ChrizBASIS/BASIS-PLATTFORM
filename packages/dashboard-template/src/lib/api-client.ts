@@ -255,6 +255,7 @@ export async function* streamChat(
 export interface ToolCallInfo {
   name: string;
   args: Record<string, unknown>;
+  result?: string;
 }
 
 export interface DirectChatResponse {
